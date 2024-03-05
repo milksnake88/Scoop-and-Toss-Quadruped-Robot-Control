@@ -74,6 +74,7 @@ class A1Run(A1WithShovelDaggerPassiveJoint):
         target_vec_norm = target_pos_rel / (target_pos_rel_norm + 1e-5)
         cur_vel = self.a1_root_states[:, 7:9]
         rew_tracking_goal_vel = torch.minimum(torch.sum(target_vec_norm[:, :2] * cur_vel, dim=-1), self.commands[:, 0] + 1e-5)
+        rew_into_1m = target_pos_rel_norm < 1
 
         # reward cos similarity
         cur_vel_norm = torch.norm(cur_vel, dim=-1, keepdim=True)
@@ -91,7 +92,7 @@ class A1Run(A1WithShovelDaggerPassiveJoint):
         target_pitch = torch.atan2(target_vec_norm[:, 2], horizontal_distance)
         distance_scaling = torch.exp(-target_pos_rel_norm/0.5).squeeze(-1)
         rew_tracking_pitch = distance_scaling * torch.exp(-torch.abs(target_pitch - pitch))
-        
+
         # reward ang vel xy
         rew_ang_vel_xy = torch.sum(torch.square(base_ang_vel[:, :2]), dim=1)
 
@@ -99,7 +100,8 @@ class A1Run(A1WithShovelDaggerPassiveJoint):
         rew_hip_pos = torch.sum(torch.square(self.dof_pos[:, self.hip_joint_indices] - self.default_dof_pos[:, self.hip_joint_indices]), dim=1)
 
         total_reward = 3.5 * rew_tracking_goal_vel + 0.65 * rew_tracking_yaw -0.05 * rew_ang_vel_xy + 1.25 * rew_tracking_pitch\
-                      -0.000003 * rew_torque -0.001 * rew_action_rate -0.00015 * rew_joint_acc + 0.0005 * rew_cos_similarity -0.0015 * rew_hip_pos
+                      -0.000003 * rew_torque -0.001 * rew_action_rate -0.00015 * rew_joint_acc + 0.0005 * rew_cos_similarity -0.0015 * rew_hip_pos\
+                      + 10 * rew_into_1m
         total_reward = torch.clip(total_reward, 0., None)
         self.rew_buf[:] = total_reward.detach()
 
@@ -108,6 +110,7 @@ class A1Run(A1WithShovelDaggerPassiveJoint):
         reset = reset | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
         bed_contact_force_norm = torch.norm(self.contact_forces[:, self.bed_index, :], dim=1)
         reset = reset | (bed_contact_force_norm > 120.).bool()
+        reset = reset | (target_pos_rel_norm < 1).squeeze().bool()
 
         time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
         reset = reset | time_out

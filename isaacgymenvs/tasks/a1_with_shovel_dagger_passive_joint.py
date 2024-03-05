@@ -292,7 +292,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
 
         self.compute_observations()
         self.compute_reward()
-        
+
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
 
@@ -317,12 +317,12 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         two = 2.0 / (base_quat*base_quat).sum(-1)
         matrix = torch.stack(
             (
-                1-two*(y*y-z*z),
-                two*(x*y-w*z),
-                two*(x*y+w*z),
-                1-two*(x*x-z*z),
-                two*(x*z-w*y),
-                two*(y*z+w*x),
+                1-two*(y*y+z*z),
+                two*(x*y-z*w),
+                two*(x*y+z*w),
+                1-two*(x*x+z*z),
+                two*(x*z-y*w),
+                two*(y*z+x*w),
             ),
             -1,
         )

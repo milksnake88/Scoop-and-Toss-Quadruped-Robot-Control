@@ -41,7 +41,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         # default joint positions
         self.named_default_joint_angles = self.cfg["env"]["defaultJointAngles"]
 
-        self.cfg["env"]["numObservations"] = 51
+        self.cfg["env"]["numObservations"] = 54
         self.cfg["env"]["numActions"] = 12
 
         # box init state. TODO: add to cfg file
@@ -77,13 +77,13 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
         torques = self.gym.acquire_dof_force_tensor(self.sim)
-        #_rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
 
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_dof_force_tensor(self.sim)
-        #self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         self.actors_per_env = self.gym.get_sim_actor_count(self.sim) // self.num_envs
         self.dofs_per_env = self.gym.get_sim_dof_count(self.sim) // self.num_envs
@@ -91,7 +91,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.root_states = gymtorch.wrap_tensor(actor_root_state)
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.dofs_per_env, 2)[..., 0]
-        #self.rb_states = gymtorch.wrap_tensor(_rb_states).view(self.num_envs, -1, 13)
+        self.rb_states = gymtorch.wrap_tensor(_rb_states).view(self.num_envs, -1, 13)
         self.dof_vel = self.dof_state.view(self.num_envs, self.dofs_per_env, 2)[..., 1]
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)
         self.torques = gymtorch.wrap_tensor(torques).view(self.num_envs, self.num_dof)
@@ -133,6 +133,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
             self.calf_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], calf_names[i])
 
         self.trunk_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "trunk")
+        self.shovel_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel_bottom")
 
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel, dtype=torch.float, device=self.device, requires_grad=False)
@@ -286,7 +287,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_dof_force_tensor(self.sim)
-        #self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         self.progress_buf += 1
 
@@ -357,9 +358,10 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
                 return local_position
 
     def compute_observations(self):
+        base_pos = self.a1_root_states[:, 0:3]
+        base_quat = self.a1_root_states[:, 3:7] # quaternion
         # states from imu(quaternion, gyroscope, accelerometer)
         # 1. quaternion
-        base_quat = self.a1_root_states[:, 3:7] # quaternion
         rot_matrix = self.quaternion_to_6D_matrix(base_quat)
         # 2. gyroscope
         base_ang_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 10:13])
@@ -367,13 +369,18 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         base_lin_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 7:10])
         accelerometer = ((base_lin_vel - self.base_lin_vel_before) / self.dt) - quat_rotate_inverse(base_quat, self.gravity_vec)
         self.base_lin_vel_before = base_lin_vel
+        # pos_of_prop_wrt_a1_base
         prop_root_pos = self.prop_root_states[:, 0:3]
         pos_of_prop_wrt_a1_base = self.get_transformed_position(point_global=prop_root_pos)
-        #pos_of_prop_wrt_a1_base = quat_rotate_inverse(base_quat, prop_root_pos) #잘못된 버전
+        # distance between shovel to prop
+        shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
+        shovel_to_prop_dis = torch.norm(prop_root_pos - shovel_bottom_pos, dim=1)
+
         self.dof_pos_new = torch.cat((self.dof_pos[:, :self.FL_shovel_joint_index], self.dof_pos[:, self.FL_shovel_joint_index+1:]), dim=1)
         self.dof_vel_new = torch.cat((self.dof_vel[:, :self.FL_shovel_joint_index], self.dof_vel[:, self.FL_shovel_joint_index+1:]), dim=1)
 
         self.obs_buf[:] = torch.cat((pos_of_prop_wrt_a1_base,
+                                     shovel_to_prop_dis,
                                      rot_matrix,
                                      base_ang_vel,
                                      accelerometer,

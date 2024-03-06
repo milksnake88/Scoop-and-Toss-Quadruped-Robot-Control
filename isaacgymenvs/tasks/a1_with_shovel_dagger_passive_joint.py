@@ -41,7 +41,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         # default joint positions
         self.named_default_joint_angles = self.cfg["env"]["defaultJointAngles"]
 
-        self.cfg["env"]["numObservations"] = 54
+        self.cfg["env"]["numObservations"] = 52
         self.cfg["env"]["numActions"] = 12
 
         # box init state. TODO: add to cfg file
@@ -213,6 +213,8 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
             for i in range(a1_body_shape_indices[thigh_idx].count):
                 a1_body_shape_props[a1_body_shape_indices[thigh_idx].start + i].filter = 1
 
+        FL_shovel_index = body_dict["FL_shovel"]
+        a1_body_shape_props[FL_shovel_index].friction = 0.5
 
         hip_names = [s for s in self.dof_names if "hip" in s]
         self.hip_joint_indices = torch.zeros(len(hip_names), dtype=torch.long, device=self.device, requires_grad=False)
@@ -371,7 +373,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         pos_of_prop_wrt_a1_base = self.get_transformed_position(point_global=prop_root_pos)
         # distance between shovel to prop
         shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
-        shovel_to_prop_dis = torch.norm(prop_root_pos - shovel_bottom_pos, dim=1)
+        shovel_to_prop_dis = torch.norm(prop_root_pos - shovel_bottom_pos, dim=1, keepdim=True)
 
         self.dof_pos_new = torch.cat((self.dof_pos[:, :self.FL_shovel_joint_index], self.dof_pos[:, self.FL_shovel_joint_index+1:]), dim=1)
         self.dof_vel_new = torch.cat((self.dof_vel[:, :self.FL_shovel_joint_index], self.dof_vel[:, self.FL_shovel_joint_index+1:]), dim=1)

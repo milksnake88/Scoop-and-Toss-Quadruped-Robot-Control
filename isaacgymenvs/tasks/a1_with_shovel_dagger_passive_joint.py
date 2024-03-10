@@ -394,7 +394,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
 
-        positions_offset = torch_rand_float(0.9, 1.1, (len(env_ids), self.num_dof), device=self.device)
+        apositions_offset = torch_rand_float(0.75, 1.25, (len(env_ids), self.num_dof), device=self.device)
         velocities = torch_rand_float(-0.1, 0.1, (len(env_ids), self.num_dof), device=self.device)
 
         self.dof_pos[env_ids] = self.default_dof_pos[env_ids] * positions_offset
@@ -402,7 +402,12 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
 
         # reset root state for all actors in selected envs
         self.root_states[self.a1_indices[env_ids]] = self.a1_init_state[env_ids].clone()
-        self.root_states[self.prop_indices[env_ids]] = self.prop_init_state[env_ids].clone()
+
+        prop_position_offset = torch_rand_float(0.7, 1.3, (len(env_ids), 2), device=self.device)
+        random_prop_init_pos = self.prop_init_state[env_ids].clone()
+        random_prop_init_pos[:, 0:2] *= prop_position_offset
+        self.root_states[self.prop_indices[env_ids]] = random_prop_init_pos
+
         actor_indices = self.all_actor_indices[env_ids].flatten()
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                      gymtorch.unwrap_tensor(self.root_states),

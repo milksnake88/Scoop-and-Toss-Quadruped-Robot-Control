@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
@@ -40,7 +40,7 @@ import torch
 import wandb
 
 def train(args):
-    args.headless = True
+    #args.headless = True
     log_pth = LEGGED_GYM_ROOT_DIR + "/logs/{}/".format(args.proj_name) + args.exptid
     try:
         os.makedirs(log_pth)
@@ -53,7 +53,7 @@ def train(args):
         args.num_envs = 64
     else:
         mode = "online"
-    
+
     if args.no_wandb:
         mode = "disabled"
     wandb.init(project=args.proj_name, name=args.exptid, entity="parkour", group=args.exptid[:3], mode=mode, dir="../../logs")

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
@@ -41,6 +41,9 @@ from .a1.a1_config import A1RoughCfg, A1RoughCfgPPO
 from .a1.a1_parkour_config import A1ParkourCfg, A1ParkourCfgPPO
 from .go1.go1_config import Go1RoughCfg, Go1RoughCfgPPO
 
+from .base.toss_and_load_robot import TossAndLoadRobot
+from .a1.a1_toss_and_load_config import A1TossAndLoadCfg, A1TossAndLoadCfgPPO
+
 import os
 
 from legged_gym.utils.task_registry import task_registry
@@ -51,3 +54,4 @@ from legged_gym.utils.task_registry import task_registry
 # task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() )
 task_registry.register( "a1", LeggedRobot, A1ParkourCfg(), A1ParkourCfgPPO() )
 task_registry.register( "go1", LeggedRobot, Go1RoughCfg(), Go1RoughCfgPPO() )
+task_registry.register( "a1_toss_and_load", TossAndLoadRobot, A1TossAndLoadCfg(), A1TossAndLoadCfgPPO())

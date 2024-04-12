@@ -221,12 +221,17 @@ class TossAndLoadRobot(BaseTask):
         self.gym.end_access_image_tensors(self.sim)
 
     def _update_goals(self):
-        self.target_pos_rel = self.prop_root_states[:, :3] - self.robot_root_states[:, :3]
+        self.target_pos_rel = self.prop_root_states[:, :3] - self.rigid_body_states[:, self.shovel_index, 0:3]
         self.target_pos_rel_norm = torch.norm(self.target_pos_rel, dim=-1, keepdim=True)
         self.target_vec_norm = self.target_pos_rel / (self.target_pos_rel_norm + 1e-5)
-        horizontal_distance = torch.norm(self.target_vec_norm[:, :2], dim=-1)
-        self.target_pitch = torch.atan2(self.target_vec_norm[:, 2], horizontal_distance)
         self.target_yaw = torch.atan2(self.target_vec_norm[:, 1], self.target_vec_norm[:, 0])
+
+        self.robot_to_prop_rel = self.prop_root_states[:, :3] - self.robot_root_states[:, :3]
+        self.robot_to_prop_rel_norm = torch.norm(self.robot_to_prop_rel, dim=-1, keepdim=True)
+        self.robot_to_prop_vec_norm = self.robot_to_prop_rel / (self.robot_to_prop_rel_norm + 1e-5)
+
+        horizontal_distance = torch.norm(self.robot_to_prop_vec_norm[:, :2], dim=-1)
+        self.target_pitch = torch.atan2(self.robot_to_prop_vec_norm[:, 2], horizontal_distance)
 
     def post_physics_step(self):
         """ check terminations, compute observations and rewards
@@ -286,15 +291,14 @@ class TossAndLoadRobot(BaseTask):
     def check_termination(self):
         """ Check if environments need to be reset
         """
-        reset_a = torch.norm(self.contact_forces[:, self.robot_base_index, :], dim=1) > 1.
-        reset_b = reset_a | torch.any(torch.norm(self.contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
-        resetc = reset_b | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
+        reset = torch.norm(self.contact_forces[:, self.robot_base_index, :], dim=1) > 1.
+        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
+        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
         bed_contact_force_norm = torch.norm(self.contact_forces[:, self.robot_bed_index, :], dim=1)
-        resetd = resetc | (bed_contact_force_norm > 120.).bool()
-        resete = resetd | (self.target_pos_rel_norm < 1).squeeze().bool()
-
+        resetd = reset | (bed_contact_force_norm > 120.).bool()
+        resete = reset | (self.target_pos_rel_norm < 0.08).squeeze().bool()
         time_out = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
-        resetf = resete | time_out
+        resetf = reset | time_out
 
         self.reset_buf[:] = resetf
 
@@ -398,15 +402,15 @@ class TossAndLoadRobot(BaseTask):
         """
         Computes observations
         """
-        # pos_of_prop_wrt_a1_base #TODO: scaling
+        # pos_of_prop_wrt_a1_base
         prop_root_pos = self.prop_root_states[:, 0:3]
         pos_of_prop_wrt_robot_base = self.get_transformed_position(point_global=prop_root_pos)
 
-        # distance between shovel to prop #TODO: scaling
+        # distance between shovel to prop
         shovel_bottom_pos = self.rigid_body_states[:, self.shovel_bottom_index, 0:3]
         shovel_to_prop_dis = torch.norm(prop_root_pos - shovel_bottom_pos, dim=1, keepdim=True)
 
-        # quaternion #TODO:scaling
+        # quaternion
         robot_base_quat = self.robot_root_states[:, 3:7] # quaternion
         rot_matrix = quaternion_to_6D_matrix(robot_base_quat)
 
@@ -1050,6 +1054,7 @@ class TossAndLoadRobot(BaseTask):
             self.calf_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.robot_handles[0], calf_names[i])
         self.robot_base_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.robot_handles[0], "base")
         self.shovel_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.robot_handles[0], "FL_shovel_bottom")
+        self.shovel_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.robot_handles[0], "FL_shovel")
         self.robot_bed_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.robot_handles[0], "bed")
 
         actor_dof_dict = self.gym.get_actor_dof_dict(self.envs[0], self.robot_handles[0])
@@ -1122,7 +1127,7 @@ class TossAndLoadRobot(BaseTask):
     ################## parkour rewards ##################
 
     def _reward_tracking_goal_vel(self):
-        cur_vel = self.robot_root_states[:, 7:9]
+        cur_vel = self.rigid_body_states[:, self.shovel_index, 7:9]
         rew = torch.minimum(torch.sum(self.target_vec_norm[:, :2] * cur_vel, dim=-1), self.commands[:, 0]) / (self.commands[:, 0] + 1e-5)
         return rew
 
@@ -1131,7 +1136,7 @@ class TossAndLoadRobot(BaseTask):
         return rew
 
     def _reward_tracking_pitch(self):
-        distance_scaling = torch.exp(-self.target_pos_rel_norm/0.5).squeeze(-1)
+        distance_scaling = torch.exp(-self.robot_to_prop_rel_norm/0.5).squeeze(-1)
         rew = distance_scaling * torch.exp(-torch.abs(self.target_pitch - self.pitch))
         return rew
 

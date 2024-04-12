@@ -38,20 +38,20 @@ class TossAndLoadRobotCfg(BaseConfig):
         load_student_config = False
         mask_priv_obs = False
     class env:
-        num_envs = 64 #6144
+        num_envs = 6144
 
         n_scan = 0
         n_priv = 3+1
         n_priv_latent = 4 + 1 + 12 + 12 # domain randomization 한 값들
         n_proprio = 6 + 3 + 3 + 12 + 12 + 12 # obs_buf
-        history_len = 10
+        history_len = 20
 
         num_observations = n_proprio + history_len * n_proprio + n_priv_latent + n_priv #n_scan + n_proprio + n_priv #187 + 47 + 5 + 12
         num_privileged_obs = None # if not None a priviledge_obs_buf will be returned by step() (critic obs for assymetric training). None is returned otherwise
         num_actions = 12
         env_spacing = 7.  # not used with heightfields/trimeshes
         send_timeouts = True # send time out information to the algorithm
-        episode_length_s = 20 # episode length in seconds
+        episode_length_s = 40 # episode length in seconds
         obs_type = "og"
 
         history_encoding = True
@@ -215,7 +215,7 @@ class TossAndLoadRobotCfg(BaseConfig):
 
         # Easy ranges
         class max_ranges:
-            lin_vel_x = [0.3, 0.8] # min max [m/s]
+            lin_vel_x = [0.2, 0.5] # min max [m/s]
             lin_vel_y = [-0.3, 0.3]#[0.15, 0.6]   # min max [m/s]
             ang_vel_yaw = [-0, 0]    # min max [rad/s]
             heading = [-1.6, 1.6]
@@ -297,10 +297,10 @@ class TossAndLoadRobotCfg(BaseConfig):
             # tracking rewards
             tracking_goal_vel = 3.5
             tracking_yaw = 1.0
-            tracking_pitch = 2.5
+            tracking_pitch = 3.0
             # regularization rewards
             hip_pos = -0.002
-            torques = -5e-6
+            torques = -0.000005
             action_rate = -0.001
             dof_acc = -0.00015
 
@@ -409,7 +409,7 @@ class TossAndLoadRobotCfgPPO(BaseConfig):
         policy_class_name = 'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24 # per iteration
-        max_iterations = 50000 # number of policy updates
+        max_iterations = 20000 # number of policy updates
 
         # logging
         save_interval = 100 # check for potential saves every this many iterations

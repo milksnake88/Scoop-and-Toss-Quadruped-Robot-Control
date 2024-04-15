@@ -295,12 +295,12 @@ class TossAndLoadRobot(BaseTask):
         reset = reset | torch.any(torch.norm(self.contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
         reset = reset | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
         bed_contact_force_norm = torch.norm(self.contact_forces[:, self.robot_bed_index, :], dim=1)
-        resetd = reset | (bed_contact_force_norm > 120.).bool()
-        resete = reset | (self.target_pos_rel_norm < 0.08).squeeze().bool()
+        reset = reset | (bed_contact_force_norm > 120.).bool()
+        reset = reset | (self.target_pos_rel_norm < 0.08).squeeze().bool()
         time_out = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
-        resetf = reset | time_out
+        reset = reset | time_out
 
-        self.reset_buf[:] = resetf
+        self.reset_buf[:] = reset
 
     def reset_idx(self, env_ids):
         """ Reset some environments.

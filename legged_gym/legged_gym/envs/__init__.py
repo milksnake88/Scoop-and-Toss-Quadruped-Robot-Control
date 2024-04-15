@@ -42,7 +42,12 @@ from .a1.a1_parkour_config import A1ParkourCfg, A1ParkourCfgPPO
 from .go1.go1_config import Go1RoughCfg, Go1RoughCfgPPO
 
 from .base.toss_and_load_robot import TossAndLoadRobot
-from .a1.a1_toss_and_load_config import A1TossAndLoadCfg, A1TossAndLoadCfgPPO
+
+#from .a1.a1_toss_and_load_config import A1TossAndLoadCfg, A1TossAndLoadCfgPPO
+from .a1.a1_approaching_config import A1ApproachingCfg, A1ApproachingCfgPPO
+from .a1.a1_picking_throwing_config import A1PickingThrowingCfg, A1PickingThrowingCfgPPO
+from .base.legged_robot_approaching import LeggedRobotApproaching
+from .base.legged_robot_picking_throwing import LeggedRobotPickingThrowing
 
 import os
 
@@ -54,4 +59,7 @@ from legged_gym.utils.task_registry import task_registry
 # task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() )
 task_registry.register( "a1", LeggedRobot, A1ParkourCfg(), A1ParkourCfgPPO() )
 task_registry.register( "go1", LeggedRobot, Go1RoughCfg(), Go1RoughCfgPPO() )
-task_registry.register( "a1_toss_and_load", TossAndLoadRobot, A1TossAndLoadCfg(), A1TossAndLoadCfgPPO())
+#task_registry.register( "a1_toss_and_load", TossAndLoadRobot, A1TossAndLoadCfg(), A1TossAndLoadCfgPPO())
+task_registry.register( "a1_approaching", LeggedRobotApproaching, A1ApproachingCfg(), A1PickingThrowingCfgPPO())
+task_registry.register( "a1_picking_throwing", LeggedRobotPickingThrowing, A1PickingThrowingCfg(), A1PickingThrowingCfgPPO())
+

@@ -208,7 +208,7 @@ class TossAndLoadRobotCfg(BaseConfig):
         ang_vel_clip = 0.4
         # Easy ranges
         class ranges:
-            lin_vel_x = [0., 1.5] # min max [m/s]
+            lin_vel_x = [0.3, 0.4] # min max [m/s]
             lin_vel_y = [0.0, 0.0]   # min max [m/s]
             ang_vel_yaw = [0, 0]    # min max [rad/s]
             heading = [0, 0]
@@ -294,12 +294,7 @@ class TossAndLoadRobotCfg(BaseConfig):
 
     class rewards:
         class scales:
-            # tracking rewards
-            tracking_goal_vel = 3.5
-            tracking_yaw = 1.0
-            tracking_pitch = 3.0
             # regularization rewards
-            hip_pos = -0.002
             torques = -0.000005
             action_rate = -0.001
             dof_acc = -0.00015

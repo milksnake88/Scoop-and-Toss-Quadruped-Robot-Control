@@ -31,7 +31,9 @@
 from legged_gym.envs.base.toss_and_load_robot_config import TossAndLoadRobotCfg, TossAndLoadRobotCfgPPO
 
 
-class A1TossAndLoadCfg( TossAndLoadRobotCfg ):
+class A1PickingThrowingCfg( TossAndLoadRobotCfg ):
+    class env( TossAndLoadRobotCfg.env ):
+        episode_length_s = 10
     class init_state( TossAndLoadRobotCfg.init_state ):
         pos = [0.0, 0.0, 0.35] # x,y,z [m]
         default_joint_angles = { # = target angles [rad] when action = 0.0
@@ -73,21 +75,30 @@ class A1TossAndLoadCfg( TossAndLoadRobotCfg ):
         vhacd_enabled = True # Whether convex decomposition is enabled. Used only with PhysX.
 
     class rewards( TossAndLoadRobotCfg.rewards ):
+        class scales( TossAndLoadRobotCfg.rewards.scales):
+            # landing rewards
+            landing = 100
+            # throwing rewards
+            throwing = 30
+            # regularization rewards
+            torques = -0.000025
+            action_rate = -0.001
+            dof_acc = -0.0001
+
         soft_dof_pos_limit = 0.9
         base_height_target = 0.25
 
     class prop( TossAndLoadRobotCfg.prop ):
-        class init_state( TossAndLoadRobotCfg.init_state):
-            pos = [4., 0.13, 0.025] # x,y,z [m]
+        class init_state( TossAndLoadRobotCfg.prop.init_state):
+            pos = [0.34, 0.13, 0.025] # x,y,z [m]
             rot = [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
             lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
             ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
 
-class A1TossAndLoadCfgPPO( TossAndLoadRobotCfgPPO ):
+class A1PickingThrowingCfgPPO( TossAndLoadRobotCfgPPO ):
     class algorithm( TossAndLoadRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
     class runner( TossAndLoadRobotCfgPPO.runner ):
         run_name = ''
         experiment_name = 'rough_a1'
-
 

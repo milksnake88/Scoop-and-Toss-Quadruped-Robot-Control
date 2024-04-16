@@ -114,7 +114,7 @@ class LeggedRobotPickingThrowing(TossAndLoadRobot):
         bed_contact_force_norm = torch.norm(self.contact_forces[:, self.robot_bed_index, :], dim=1)
         reset = reset | (bed_contact_force_norm > 120.).bool()
 
-        progress_cond = self.progress_buf > ( 0.6 / self.dt)
+        progress_cond = self.episode_length_buf > ( 0.6 / self.dt)
         prop_contact = torch.norm(self.contact_forces[:, self.prop_index, :], dim=1) > 0.
         not_landing = ~self.landing.bool()
         not_bed_contact = ~bed_contact_force_norm.bool()

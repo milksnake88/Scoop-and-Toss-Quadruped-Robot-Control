@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
@@ -72,14 +72,14 @@ def play(args):
     env_cfg.terrain.num_rows = 5
     env_cfg.terrain.num_cols = 5
     env_cfg.terrain.height = [0.02, 0.02]
-    env_cfg.terrain.terrain_dict = {"smooth slope": 0., 
+    env_cfg.terrain.terrain_dict = {"smooth slope": 0.,
                                     "rough slope up": 0.0,
                                     "rough slope down": 0.0,
-                                    "rough stairs up": 0., 
-                                    "rough stairs down": 0., 
-                                    "discrete": 0., 
+                                    "rough stairs up": 0.,
+                                    "rough stairs down": 0.,
+                                    "discrete": 0.,
                                     "stepping stones": 0.0,
-                                    "gaps": 0., 
+                                    "gaps": 0.,
                                     "smooth flat": 0,
                                     "pit": 0.0,
                                     "wall": 0.0,
@@ -90,13 +90,13 @@ def play(args):
                                     "parkour_hurdle": 0.2,
                                     "parkour_flat": 0.,
                                     "parkour_step": 0.2,
-                                    "parkour_gap": 0.2, 
+                                    "parkour_gap": 0.2,
                                     "demo": 0.2}
-    
+
     env_cfg.terrain.terrain_proportions = list(env_cfg.terrain.terrain_dict.values())
     env_cfg.terrain.curriculum = False
     env_cfg.terrain.max_difficulty = True
-    
+
     env_cfg.depth.angle = [0, 1]
     env_cfg.noise.add_noise = True
     env_cfg.domain_rand.randomize_friction = True
@@ -107,7 +107,7 @@ def play(args):
 
     depth_latent_buffer = []
     # prepare environment
-    env: LeggedRobot
+    env: TossAndLoadRobot
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     obs = env.get_observations()
 
@@ -117,7 +117,7 @@ def play(args):
     # load policy
     train_cfg.runner.resume = True
     ppo_runner, train_cfg, log_pth = task_registry.make_alg_runner(log_root = log_pth, env=env, name=args.task, args=args, train_cfg=train_cfg, return_log_dir=True)
-    
+
     if args.use_jit:
         path = os.path.join(log_pth, "traced")
         model, checkpoint = get_load_path(root=path, checkpoint=args.checkpoint)
@@ -155,27 +155,27 @@ def play(args):
                     depth_latent = depth_latent_and_yaw[:, :-2]
                     yaw = depth_latent_and_yaw[:, -2:]
                 obs[:, 6:8] = 1.5*yaw
-                    
+
             else:
                 depth_latent = None
-            
+
             if hasattr(ppo_runner.alg, "depth_actor"):
                 actions = ppo_runner.alg.depth_actor(obs.detach(), hist_encoding=True, scandots_latent=depth_latent)
             else:
                 actions = policy(obs.detach(), hist_encoding=True, scandots_latent=depth_latent)
-            
+
         obs, _, rews, dones, infos = env.step(actions.detach())
         if args.web:
             web_viewer.render(fetch_results=True,
                         step_graphics=True,
                         render_all_camera_sensors=True,
                         wait_for_page_load=True)
-        print("time:", env.episode_length_buf[env.lookat_id].item() / 50, 
+        print("time:", env.episode_length_buf[env.lookat_id].item() / 50,
               "cmd vx", env.commands[env.lookat_id, 0].item(),
-              "actual vx", env.base_lin_vel[env.lookat_id, 0].item(), )
-        
+              "actual vx", env.robot_base_lin_vel[env.lookat_id, 0].item() )
+
         id = env.lookat_id
-        
+
 
 if __name__ == '__main__':
     EXPORT_POLICY = False

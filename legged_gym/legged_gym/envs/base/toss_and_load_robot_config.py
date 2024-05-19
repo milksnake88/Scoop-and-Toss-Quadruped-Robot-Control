@@ -43,7 +43,7 @@ class TossAndLoadRobotCfg(BaseConfig):
         n_scan = 0
         n_priv = 3+1
         n_priv_latent = 4 + 1 + 12 + 12 # domain randomization 한 값들
-        n_proprio = 6 + 3 + 3 + 12 + 12 + 12 # obs_buf
+        n_proprio = 6 + 3 + 3 + 12 + 12 + 12 # obs_buf # 48
         history_len = 20
 
         num_observations = n_proprio + history_len * n_proprio + n_priv_latent + n_priv #n_scan + n_proprio + n_priv #187 + 47 + 5 + 12
@@ -354,7 +354,8 @@ class TossAndLoadRobotCfgPPO(BaseConfig):
     class policy:
         init_noise_std = 1.0
         continue_from_last_std = True
-        scan_encoder_dims = None
+        #scan_encoder_dims = None
+        scan_encoder_dims = [0, 0, 4]
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         priv_encoder_dims = [64, 20]

@@ -190,8 +190,7 @@ class TossAndLoadRobot(BaseTask):
         return depth_image
 
     def crop_depth_image(self, depth_image):
-        # crop 30 pixels from the left and right and and 20 pixels from bottom and return croped image
-        return depth_image[:-2, 4:-4]
+        return depth_image[2:, 4:-4]
 
     def update_depth_buffer(self):
         if not self.cfg.depth.use_camera:

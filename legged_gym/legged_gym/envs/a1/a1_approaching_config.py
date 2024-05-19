@@ -77,7 +77,8 @@ class A1ApproachingCfg( TossAndLoadRobotCfg ):
             # tracking rewards
             tracking_goal_vel = 3.5
             tracking_yaw = 1.0
-            tracking_pitch = 3.0
+            tracking_pitch = 5.0
+            looking_at_prop = 3
             # regularization rewards
             hip_pos = -0.002
             torques = -0.000005
@@ -93,6 +94,10 @@ class A1ApproachingCfg( TossAndLoadRobotCfg ):
             rot = [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
             lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
             ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+
+    class depth( TossAndLoadRobotCfg.depth):
+        original = (106, 70)
+        vertical_fov = 58
 
 class A1ApproachingCfgPPO( TossAndLoadRobotCfgPPO ):
     class algorithm( TossAndLoadRobotCfgPPO.algorithm ):

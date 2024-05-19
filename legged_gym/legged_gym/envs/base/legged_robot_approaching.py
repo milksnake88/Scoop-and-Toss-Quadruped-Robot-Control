@@ -109,6 +109,19 @@ class LeggedRobotApproaching(TossAndLoadRobot):
         horizontal_distance = torch.norm(self.robot_to_prop_vec_norm[:, :2], dim=-1)
         self.target_pitch = torch.atan2(self.robot_to_prop_vec_norm[:, 2], horizontal_distance)
 
+        # pos_of_prop_wrt_a1_base
+        prop_root_pos = self.prop_root_states[:, 0:3]
+        pos_of_prop_wrt_robot_base = self.get_transformed_position(point_global=prop_root_pos)
+
+        camera_pos = torch.tensor(self.cfg.depth.position, dtype=torch.float, device=self.device, requires_grad=False)
+        camera_to_prop_rel = pos_of_prop_wrt_robot_base - camera_pos
+        camera_to_prop_rel_norm = torch.norm(camera_to_prop_rel, dim=-1, keepdim=True)
+        camera_to_prop_vec_norm = camera_to_prop_rel / (camera_to_prop_rel_norm + 1e-5)
+        # Calculate horizontal and vertical angles
+        self.horizontal_angle = torch.abs(torch.atan2(camera_to_prop_vec_norm[:, 1], camera_to_prop_vec_norm[:, 0]))
+        horizontal_distance = torch.norm(camera_to_prop_vec_norm[:, :2], dim=-1)
+        self.vertical_angle = torch.abs(torch.atan2(camera_to_prop_vec_norm[:, 2], horizontal_distance))
+
 
     def check_termination(self):
         """ Check if environments need to be reset
@@ -210,6 +223,12 @@ class LeggedRobotApproaching(TossAndLoadRobot):
     def _reward_tracking_pitch(self):
         distance_scaling = torch.exp(-self.robot_to_prop_rel_norm/0.5).squeeze(-1)
         rew = distance_scaling * torch.exp(-torch.abs(self.target_pitch - self.pitch))
+        return rew
+
+    def _reward_looking_at_prop(self):
+        hfov_rad = torch.deg2rad(torch.tensor(self.cfg.depth.horizontal_fov/2, dtype=torch.float, device=self.device, requires_grad=False))
+        vfov_rad = torch.deg2rad(torch.tensor(self.cfg.depth.vertical_fov/2, dtype=torch.float, device=self.device, requires_grad=False))
+        rew = (self.horizontal_angle <= hfov_rad) & (self.vertical_angle <= vfov_rad)
         return rew
 
     def _reward_hip_pos(self):

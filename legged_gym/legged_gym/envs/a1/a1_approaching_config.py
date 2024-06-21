@@ -77,8 +77,8 @@ class A1ApproachingCfg( TossAndLoadRobotCfg ):
             # tracking rewards
             tracking_goal_vel = 3.5
             tracking_yaw = 1.0
-            tracking_pitch = 5.0
-            looking_at_prop = 3
+            #tracking_pitch = 5.0
+            looking_at_prop = 4
             # regularization rewards
             hip_pos = -0.002
             torques = -0.000005
@@ -102,6 +102,7 @@ class A1ApproachingCfg( TossAndLoadRobotCfg ):
 class A1ApproachingCfgPPO( TossAndLoadRobotCfgPPO ):
     class algorithm( TossAndLoadRobotCfgPPO.algorithm ):
         entropy_coef = 0.01
+        learning_rate = 8.e-5 #5.e-4
     class runner( TossAndLoadRobotCfgPPO.runner ):
         run_name = ''
         experiment_name = 'rough_a1'

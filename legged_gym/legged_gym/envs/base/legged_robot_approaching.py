@@ -220,10 +220,12 @@ class LeggedRobotApproaching(TossAndLoadRobot):
         rew = torch.exp(-torch.abs(self.target_yaw - yaw))
         return rew
 
+    """
     def _reward_tracking_pitch(self):
         distance_scaling = torch.exp(-self.robot_to_prop_rel_norm/0.5).squeeze(-1)
         rew = distance_scaling * torch.exp(-torch.abs(self.target_pitch - self.pitch))
         return rew
+    """
 
     def _reward_looking_at_prop(self):
         hfov_rad = torch.deg2rad(torch.tensor(self.cfg.depth.horizontal_fov/2, dtype=torch.float, device=self.device, requires_grad=False))

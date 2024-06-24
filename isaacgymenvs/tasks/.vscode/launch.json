@@ -1,0 +1,23 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Train",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/../train.py",
+            "console": "integratedTerminal",
+            "pythonPath": "/usr/bin/python3.8",
+            "args": [
+                "task=A1ApproachingExtremeParkourVersion",
+                "test=true",
+                "num_envs=2",
+                "checkpoint=../runs/a1_approaching_extreme_parkour_version_test56/nn/a1_approaching_extreme_parkour_version_test56.pth"
+            ],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

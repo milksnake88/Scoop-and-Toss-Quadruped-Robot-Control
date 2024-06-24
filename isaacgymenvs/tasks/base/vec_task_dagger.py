@@ -103,6 +103,7 @@ class Env(ABC):
 
         self.num_observations = config["env"].get("numObservations", 0)
         self.num_states = config["env"].get("numStates", 0)
+        self.num_privileged_observations = config["env"].get("numPrivilegedObservations", 0)
 
         self.obs_space = spaces.Box(np.ones(self.num_obs) * -np.Inf, np.ones(self.num_obs) * np.Inf)
         self.state_space = spaces.Box(np.ones(self.num_states) * -np.Inf, np.ones(self.num_states) * np.Inf)
@@ -183,6 +184,11 @@ class Env(ABC):
     def num_obs(self) -> int:
         """Get the number of observations in the environment."""
         return self.num_observations
+
+    @property
+    def num_privileged_obs(self) -> int:
+        """Get the number of privileged observations in the environment."""
+        return self.num_privileged_observations
 
     def set_train_info(self, env_frames, *args, **kwargs):
         """
@@ -321,7 +327,13 @@ class VecTask(Env):
             self.num_envs, device=self.device, dtype=torch.long)
         self.randomize_buf = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.long)
+        if self.num_privileged_obs is not None:
+            self.privileged_obs_buf = torch.zeros(
+                self.num_envs, self.num_privileged_obs, device=self.device, dtype=torch.float)
+        else:
+            self.privileged_obs_buf = None
         self.extras = {}
+
 
     def create_sim(self, compute_device: int, graphics_device: int, physics_engine, sim_params: gymapi.SimParams):
         """Create an Isaac Gym sim object.

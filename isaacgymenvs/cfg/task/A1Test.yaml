@@ -5,8 +5,7 @@ physics_engine: ${..physics_engine}
 
 env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
-  envSpacing: 5.  # [m]
-
+  envSpacing: 4.  # [m]
   clipObservations: 5.0
   clipActions: 1.0
 

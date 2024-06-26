@@ -57,6 +57,7 @@ class A1MoE(VecTask):
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
         # other
+        self.env_space = self.cfg["env"]["envSpacing"]
         self.dt = self.sim_params.dt # 0.02
         self.max_episode_length_s = self.cfg["env"]["learn"]["episodeLength_s"] # 50, episode length in seconds
         self.max_episode_length = int(self.max_episode_length_s / self.dt + 0.5)
@@ -97,7 +98,7 @@ class A1MoE(VecTask):
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)
         self.torques = gymtorch.wrap_tensor(torques).view(self.num_envs, self.num_dof)
         self.a1_root_states = self.root_states.view(self.num_envs, self.actors_per_env, 13)[:, 0, :]
-        self.prop_root_states = self.root_states.view(self.num_envs, self.actors_per_env, 13)[:, 1:4, :]
+        self.prop_root_states = self.root_states.view(self.num_envs, self.actors_per_env, 13)[:, 1:self.num_boxes+1, :]
 
         self.all_actor_indices = torch.arange(self.actors_per_env * self.num_envs, dtype=torch.int32, device=self.device).view(self.num_envs, self.actors_per_env)
 
@@ -230,7 +231,6 @@ class A1MoE(VecTask):
         box_asset_options.fix_base_link = False
         box_asset_options.disable_gravity = False
         box_asset = self.gym.create_box(self.sim, box_size, box_size, box_size, box_asset_options)
-        num_boxes = 4
         box_pose = gymapi.Transform()
 
         # create env
@@ -259,7 +259,7 @@ class A1MoE(VecTask):
             self.a1_indices.append(a1_idx)
             self.a1_init_state.append(self.base_init_state)
 
-            for j in range(num_boxes):
+            for j in range(self.num_boxes):
                 box_pose.p = gymapi.Vec3(*self.box_init_state[:3]) + gymapi.Vec3(j*box_size, j*box_size, 0)
                 box_pose.r = gymapi.Quat(*self.box_init_state[3:7])
                 prop_handle = self.gym.create_actor(env_ptr, box_asset, box_pose, "prop" + str(j), i, 0, 0)
@@ -399,8 +399,8 @@ class A1MoE(VecTask):
         random_prop_init_pos = self.prop_init_state[env_ids].clone()
 
         for i in range(env_ids.size(0)):
-            random_prop_init_pos[i, :, 0:2] = (torch.rand(4, 2) - 0.5) * torch.tensor([10, 10])
-            self.root_states[self.prop_indices[i:i+4]] = random_prop_init_pos[i]
+            random_prop_init_pos[i, :, 0:2] = (torch.rand(self.num_boxes, 2) - 0.5) * torch.tensor([2*self.env_space-0.5, 2*self.env_space-0.5])
+            self.root_states[self.prop_indices[i*self.num_boxes:i*self.num_boxes+self.num_boxes]] = random_prop_init_pos[i]
 
         actor_indices = self.all_actor_indices[env_ids].flatten()
         self.gym.set_actor_root_state_tensor_indexed(self.sim,

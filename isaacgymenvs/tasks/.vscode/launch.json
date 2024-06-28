@@ -12,10 +12,10 @@
             "console": "integratedTerminal",
             "pythonPath": "/usr/bin/python3.8",
             "args": [
-                "task=A1ApproachingExtremeParkourVersion",
+                "task=A1Test",
                 "test=true",
-                "num_envs=2",
-                "checkpoint=../runs/a1_approaching_extreme_parkour_version_test56/nn/a1_approaching_extreme_parkour_version_test56.pth"
+                "num_envs=3",
+                // "checkpoint=../runs/a1_approaching_extreme_parkour_version_test56/nn/a1_approaching_extreme_parkour_version_test56.pth"
             ],
             "cwd": "${workspaceFolder}"
         }

@@ -63,6 +63,7 @@ from .a1_approaching_extreme_parkour_version import A1ApproachingExtremeParkourV
 from .a1_picking import A1Picking
 from .a1_cross_picking import A1CrossPicking
 from .a1_run import A1Run
+from .a1_test import A1Test
 
 # Mappings from strings to environments
 isaacgym_task_map = {
@@ -102,4 +103,5 @@ isaacgym_task_map = {
     "A1Picking": A1Picking,
     "A1CrossPicking": A1CrossPicking,
     "A1Run": A1Run,
+    "A1Test": A1Test,
 }

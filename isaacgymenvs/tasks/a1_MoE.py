@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import torch
+torch.set_printoptions(profile="full")
 
 from isaacgym import gymtorch
 from isaacgym import gymapi
@@ -58,6 +59,8 @@ class A1MoE(VecTask):
 
         # other
         self.env_space = self.cfg["env"]["envSpacing"]
+        self.grid_size = self.cfg["env"]["objectMap"]["gridSize"]
+        self.sigma = self.cfg["env"]["objectMap"]["sigma"]
         self.dt = self.sim_params.dt # 0.02
         self.max_episode_length_s = self.cfg["env"]["learn"]["episodeLength_s"] # 50, episode length in seconds
         self.max_episode_length = int(self.max_episode_length_s / self.dt + 0.5)
@@ -381,8 +384,26 @@ class A1MoE(VecTask):
                                      self.actions,
                                      ), dim=-1)
 
+    def gaussian_kernel(self, x, y, sigma=1.0):
+        return torch.exp(-torch.sum((x-y)**2, dim=-1) / (2*sigma**2))
+
+    def compute_ditance_map(self):
+        linspace = torch.linspace(-self.env_space, self.env_space, self.grid_size, device=self.device, requires_grad=False)
+        grid_x, grid_y = torch.meshgrid(linspace, linspace)
+        grid = torch.stack([grid_x, grid_y], dim=-1).reshape(-1, 2)
+
+        prop_root_pos_xy = self.prop_root_states[:, :, 0:2]
+
+        grid_expanded = grid.unsqueeze(0).unsqueeze(2)
+        pos_xy_expanded = prop_root_pos_xy.unsqueeze(1)
+
+        distances = self.gaussian_kernel(grid_expanded, pos_xy_expanded, self.sigma) # (num_evns, grid_size*grid_size, num_boxes)
+        object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size, self.grid_size)
+
+        return object_map
 
     def reset_idx(self, env_ids):
+        self.compute_ditance_map()
         # Randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
             self.apply_randomizations(self.randomization_params)

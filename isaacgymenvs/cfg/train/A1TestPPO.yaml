@@ -8,7 +8,7 @@ params:
     name: continuous_a2c_logstd
 
   network:
-    name: actor_critic
+    name: cnn_mlp_network # actor_critic
     separate: False
 
     space:
@@ -22,6 +22,42 @@ params:
           val: 0. # std = 1.
         fixed_sigma: True
 
+    cnn:
+      type: conv2d
+      activation: relu
+      initializer:
+        name: default
+      regularizer:
+        name: 'None'
+      num_channels: 1
+      image_width: 50
+      image_height: 50
+      convs:    
+        - filters: 32
+          kernel_size: 5
+          strides: 2
+          padding: 2
+          pooling:
+            type: max
+            kernel_size: 2
+            strides: 2
+            padding: 0
+        - filters: 64
+          kernel_size: 3
+          strides: 2
+          padding: 1
+          pooling:
+            type: max
+            kernel_size: 2
+            strides: 2
+            padding: 0
+        - filters: 128
+          kernel_size: 3
+          strides: 2
+          padding: 1
+          pooling:
+            type: None
+            
     mlp:
       units: [256, 128, 64]
       activation: elu

@@ -52,15 +52,16 @@ class A1MoE(VecTask):
         self.box_init_state = box_state
         self.num_boxes = 4
 
-        self.cfg["env"]["numObservations"] = 48
+        self.env_space = self.cfg["env"]["envSpacing"]
+        self.grid_size = self.cfg["env"]["objectMap"]["gridSize"]
+        self.sigma = self.cfg["env"]["objectMap"]["sigma"]
+
+        self.cfg["env"]["numObservations"] = self.grid_size * self.grid_size
         self.cfg["env"]["numActions"] = 12
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
         # other
-        self.env_space = self.cfg["env"]["envSpacing"]
-        self.grid_size = self.cfg["env"]["objectMap"]["gridSize"]
-        self.sigma = self.cfg["env"]["objectMap"]["sigma"]
         self.dt = self.sim_params.dt # 0.02
         self.max_episode_length_s = self.cfg["env"]["learn"]["episodeLength_s"] # 50, episode length in seconds
         self.max_episode_length = int(self.max_episode_length_s / self.dt + 0.5)
@@ -361,28 +362,8 @@ class A1MoE(VecTask):
 
 
     def compute_observations(self):
-        # states from imu(quaternion, gyroscope, accelerometer)
-        # 1. quaternion
-        base_quat = self.a1_root_states[:, 3:7] # quaternion
-        rot_matrix = self.quaternion_to_6D_matrix(base_quat)
-        # 2. gyroscope
-        base_ang_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 10:13])
-        # 3. accelerometer
-        base_lin_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 7:10])
-        accelerometer = ((base_lin_vel - self.base_lin_vel_before) / self.dt) - quat_rotate_inverse(base_quat, self.gravity_vec)
-        self.base_lin_vel_before = base_lin_vel
-        prop_root_pos = self.prop_root_states[:, 0:3]
-        #pos_of_prop_wrt_a1_base = self.get_transformed_position(point_global=prop_root_pos)
-        #shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
-        #shovel_to_prop_dis = torch.norm(prop_root_pos - shovel_bottom_pos, dim=1, keepdim=True)
-
-        self.obs_buf[:] = torch.cat((rot_matrix,
-                                     base_ang_vel,
-                                     accelerometer,
-                                     self.dof_pos,
-                                     self.dof_vel,
-                                     self.actions,
-                                     ), dim=-1)
+        object_map = self.compute_ditance_map()
+        self.obs_buf[:] = object_map
 
     def gaussian_kernel(self, x, y, sigma=1.0):
         return torch.exp(-torch.sum((x-y)**2, dim=-1) / (2*sigma**2))

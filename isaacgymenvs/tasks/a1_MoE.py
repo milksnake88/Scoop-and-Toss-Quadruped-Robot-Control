@@ -402,6 +402,8 @@ class A1MoE(VecTask):
         distances = self.gaussian_kernel(grid_expanded, pos_xy_expanded, self.sigma) # (num_evns, grid_size*grid_size, num_boxes)
         object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size*self.grid_size)
 
+        self.visualize_object_map(object_map.reshape(self.num_envs, self.grid_size, self.grid_size), prop_root_pos_wrt_a1_base[:, :, 0:2],  self.prop_root_states[:, :, 0:2])
+
         return object_map
 
     def reset_idx(self, env_ids):

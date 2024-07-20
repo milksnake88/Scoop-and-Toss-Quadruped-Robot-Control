@@ -56,7 +56,7 @@ class A1MoE(VecTask):
         self.grid_size = self.cfg["env"]["objectMap"]["gridSize"]
         self.sigma = self.cfg["env"]["objectMap"]["sigma"]
 
-        self.cfg["env"]["numObservations"] = self.grid_size * self.grid_size
+        self.cfg["env"]["numObservations"] = self.grid_size * self.grid_size + 48
         self.cfg["env"]["numActions"] = 12
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
@@ -363,7 +363,25 @@ class A1MoE(VecTask):
 
     def compute_observations(self):
         object_map = self.compute_ditance_map()
-        self.obs_buf[:] = object_map
+        # 1. quaternion
+        base_quat = self.a1_root_states[:, 3:7] # quaternion
+        rot_matrix = self.quaternion_to_6D_matrix(base_quat)
+        # 2. gyroscope
+        base_ang_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 10:13])
+        # 3. accelerometer
+        base_lin_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 7:10])
+        accelerometer = ((base_lin_vel - self.base_lin_vel_before) / self.dt) - quat_rotate_inverse(base_quat, self.gravity_vec)
+        self.base_lin_vel_before = base_lin_vel
+
+        self.obs_buf[:] = torch.cat((object_map,
+                                     rot_matrix,
+                                     base_ang_vel,
+                                     accelerometer,
+                                     self.dof_pos,
+                                     self.dof_vel,
+                                     self.actions,
+                                     ), dim=-1)
+
 
     def gaussian_kernel(self, x, y, sigma=1.0):
         return torch.exp(-torch.sum((x-y)**2, dim=-1) / (2*sigma**2))
@@ -379,7 +397,8 @@ class A1MoE(VecTask):
         pos_xy_expanded = prop_root_pos_xy.unsqueeze(1)
 
         distances = self.gaussian_kernel(grid_expanded, pos_xy_expanded, self.sigma) # (num_evns, grid_size*grid_size, num_boxes)
-        object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size, self.grid_size)
+        # object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size, self.grid_size)
+        object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size*self.grid_size) #TODO: 확인필요
 
         return object_map
 

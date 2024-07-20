@@ -387,18 +387,20 @@ class A1MoE(VecTask):
         return torch.exp(-torch.sum((x-y)**2, dim=-1) / (2*sigma**2))
 
     def compute_ditance_map(self):
-        linspace = torch.linspace(-self.env_space, self.env_space, self.grid_size, device=self.device, requires_grad=False)
+        linspace = torch.linspace(-self.env_space*2, self.env_space*2, self.grid_size, device=self.device, requires_grad=False)
         grid_x, grid_y = torch.meshgrid(linspace, linspace)
         grid = torch.stack([grid_x, grid_y], dim=-1).reshape(-1, 2)
 
-        prop_root_pos_xy = self.prop_root_states[:, :, 0:2]
+        prop_root_pos = self.prop_root_states[:, :, 0:3]
+        prop_root_pos_wrt_a1_base = torch.zeros_like(prop_root_pos, dtype=torch.float, device=self.device, requires_grad=False)
+        for i in range(self.num_boxes):
+            prop_root_pos_wrt_a1_base[:, i, :] = self.get_transformed_position(point_global=prop_root_pos[:, i, :])
 
         grid_expanded = grid.unsqueeze(0).unsqueeze(2)
-        pos_xy_expanded = prop_root_pos_xy.unsqueeze(1)
+        pos_xy_expanded = prop_root_pos_wrt_a1_base[:, :, 0:2].unsqueeze(1)
 
         distances = self.gaussian_kernel(grid_expanded, pos_xy_expanded, self.sigma) # (num_evns, grid_size*grid_size, num_boxes)
-        # object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size, self.grid_size)
-        object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size*self.grid_size) #TODO: 확인필요
+        object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size*self.grid_size)
 
         return object_map
 

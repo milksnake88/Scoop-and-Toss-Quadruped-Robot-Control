@@ -55,28 +55,6 @@ class A1Test(A1MoE):
         plt.grid()
         plt.show()
 
-
-    def get_global_position(self, point_local=None, vector_local=None):
-        base_pos = self.a1_root_states[:, 0:3].squeeze().cpu().numpy()
-        base_ori = self.a1_root_states[:, 3:7].squeeze().cpu().numpy()
-
-        global_position = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
-
-        if (self.num_envs == 1):
-            base_pos = base_pos.reshape((1, *base_pos.shape))
-            base_ori = base_ori.reshape((1, *base_ori.shape))
-        for i in range(self.num_envs):
-            transform = gymapi.Transform(gymapi.Vec3(base_pos[i][0], base_pos[i][1], base_pos[i][2]),
-                                         gymapi.Quat(base_ori[i][0], base_ori[i][1], base_ori[i][2], base_ori[i][3]))
-            if point_local is not None:
-                transformed_position = transform.transform_point(gymapi.Vec3(point_local[i][0], point_local[i][1], point_local[i][2]))
-                global_position[i] = torch.tensor([[transformed_position.x, transformed_position.y, transformed_position.z]],  dtype=torch.float, device=self.device, requires_grad=False)
-            if vector_local is not None:
-                transformed_vector = transform.transform_vector(gymapi.Vec3(vector_local[i][0], vector_local[i][1], vector_local[i][2]))
-                global_position[i] = torch.tensor([[transformed_vector.x, transformed_vector.y, transformed_vector.z]],  dtype=torch.float, device=self.device, requires_grad=False)
-
-        return global_position
-
     def compute_reward(self):
 
         time_out = self.progress_buf >= self.max_episode_length / 10- 1  # no terminal reward for time-outs

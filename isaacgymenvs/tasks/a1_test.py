@@ -21,6 +21,9 @@ class A1Test(A1MoE):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+        self.base_up_vector = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.base_up_vector[:, 2] = 1. # bed joint position in base frame
+        self.bed_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "bed_bottom")
 
     def draw_lines(self, start, end):
         # type: (Tensor, Tensor) -> None
@@ -56,6 +59,12 @@ class A1Test(A1MoE):
         plt.show()
 
     def compute_reward(self):
+        rew_landing = self._reward_landing()
+
+        total_reward = self.rew_scales["landing"] * rew_landing
+
+        total_reward = torch.clip(total_reward, 0., None)
+        self.rew_buf[:] = total_reward.detach()
 
         time_out = self.progress_buf >= self.max_episode_length / 10- 1  # no terminal reward for time-outs
         reset = time_out
@@ -63,4 +72,27 @@ class A1Test(A1MoE):
         self.reset_buf[:] = reset
 
 
+    ############## rewards ##############
 
+    def _reward_landing(self):
+        # compute_box_position_along_bed
+        bed_normal_vector = self.get_transformed_position(vector_local=self.base_up_vector).unsqueeze(1)
+        bed_normal_vector_expanded = bed_normal_vector.expand(-1, self.num_boxes, -1)
+        bed_pos = self.rb_states[:, self.bed_bottom_index, 0:3].unsqueeze(1)
+        bed_pos_expanded = bed_pos.expand(-1, self.num_boxes, -1)
+        prop_root_pos = self.prop_root_states[:, :, 0:3]
+        bed_to_box_vector = prop_root_pos - bed_pos_expanded
+        distance = torch.norm(bed_to_box_vector, dim=-1)
+
+        box_position_in_normal_direction = torch.einsum('ijk,ijk->ij', bed_to_box_vector, bed_normal_vector_expanded)
+        box_position_in_plane_direction = torch.sqrt(torch.square(distance)-torch.square(box_position_in_normal_direction))
+
+        #self.draw_lines(bed_pos_expanded[0][0], bed_pos_expanded[0][0]+bed_normal_vector_expanded[0][0]*box_position_in_normal_direction[0][0])
+
+        normal_condition = (0<box_position_in_normal_direction) & (box_position_in_normal_direction<0.05)
+        plane_condition = box_position_in_plane_direction < 0.12
+        landing = (normal_condition & plane_condition).float()
+        rew_landing = torch.sum(landing, dim=-1)
+        self.landing += landing
+
+        return rew_landing

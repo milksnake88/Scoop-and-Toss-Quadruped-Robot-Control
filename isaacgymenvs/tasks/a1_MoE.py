@@ -20,6 +20,7 @@ class A1MoE(VecTask):
 
         # reward scales
         self.rew_scales = {}
+        self.rew_scales["landing"] = self.cfg["env"]["learn"]["landingRewardScale"]
         self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
 
         # randomization
@@ -137,7 +138,7 @@ class A1MoE(VecTask):
 
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel, dtype=torch.float, device=self.device, requires_grad=False)
-        self.landing = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.landing = torch.zeros(self.num_envs, self.num_boxes, dtype=torch.float, device=self.device, requires_grad=False)
         self.picked = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
 
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
@@ -148,9 +149,6 @@ class A1MoE(VecTask):
         self.shovel_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel_bottom")
         self.bed_position_local = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.bed_position_local[:, 2] = 0.06 # bed joint position in base frame
-        self.base_up_vector = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
-        self.base_up_vector[:, 2] = 1. # bed joint position in base frame
-
 
     def create_sim(self):
         self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
@@ -402,7 +400,7 @@ class A1MoE(VecTask):
         distances = self.gaussian_kernel(grid_expanded, pos_xy_expanded, self.sigma) # (num_evns, grid_size*grid_size, num_boxes)
         object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size*self.grid_size)
 
-        self.visualize_object_map(object_map.reshape(self.num_envs, self.grid_size, self.grid_size), prop_root_pos_wrt_a1_base[:, :, 0:2],  self.prop_root_states[:, :, 0:2])
+        # self.visualize_object_map(object_map.reshape(self.num_envs, self.grid_size, self.grid_size), prop_root_pos_wrt_a1_base[:, :, 0:2],  self.prop_root_states[:, :, 0:2])
 
         return object_map
 

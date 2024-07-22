@@ -45,7 +45,7 @@ class A1MoE(VecTask):
 
         # box init state. TODO: add to cfg file
         #box_pos = [0.24, 0.13, 0.08]
-        box_pos = [4., 0.13, 0.025]
+        box_pos = [3., 0.13, 0.025]
         box_rot = [0., 0., 0., 1.]
         box_v_lin = [0., 0., 0.]
         box_v_ang = [0., 0., 0.]
@@ -58,7 +58,7 @@ class A1MoE(VecTask):
         self.sigma = self.cfg["env"]["objectMap"]["sigma"]
 
         self.cfg["env"]["numObservations"] = self.grid_size * self.grid_size + 48
-        self.cfg["env"]["numActions"] = 12
+        self.cfg["env"]["numActions"] = 12 + 12 +3
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
@@ -136,7 +136,7 @@ class A1MoE(VecTask):
             self.calf_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], calf_names[i])
         self.trunk_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "trunk")
 
-        self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self.last_actions = torch.zeros(self.num_envs, 12, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel, dtype=torch.float, device=self.device, requires_grad=False)
         self.landing = torch.zeros(self.num_envs, self.num_boxes, dtype=torch.float, device=self.device, requires_grad=False)
         self.picked = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
@@ -380,6 +380,9 @@ class A1MoE(VecTask):
                                      self.actions,
                                      ), dim=-1)
 
+        # extra obs for experts
+        shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
+        self.extras["shovel_bottom_pos"] = shovel_bottom_pos
 
     def gaussian_kernel(self, x, y, sigma=1.0):
         return torch.exp(-torch.sum((x-y)**2, dim=-1) / (2*sigma**2))

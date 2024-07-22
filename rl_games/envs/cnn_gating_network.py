@@ -69,15 +69,18 @@ class CnnGatingNet(nn.Module):
         self.value_act = self.activations_factory.create(self.value_activation)
 
         if self.is_continuous:
-            self.mu = torch.nn.Linear(out_size, actions_num)
+            self.mu_weights = torch.nn.Linear(out_size, 24) #TODO: 24(actions_num) kwargs에서 가져오기
+            self.mu_position = torch.nn.Linear(out_size, 3) #TODO: 3(actions_num) kwargs에서 가져오기
             self.mu_act = self.activations_factory.create(self.space_config['mu_activation'])
             mu_init = self.init_factory.create(**self.space_config['mu_init'])
             self.sigma_act = self.activations_factory.create(self.space_config['sigma_activation'])
             sigma_init = self.init_factory.create(**self.space_config['sigma_init'])
             if self.fixed_sigma:
-                self.sigma = nn.Parameter(torch.zeros(actions_num, requires_grad=True, dtype=torch.float32), requires_grad=True)
+                self.sigma_weights = nn.Parameter(torch.zeros(24, requires_grad=True, dtype=torch.float32), requires_grad=True)
+                self.sigma_position = nn.Parameter(torch.zeros(3, requires_grad=True, dtype=torch.float32), requires_grad=True)
             else:
-                self.sigma = torch.nn.Linear(out_size, actions_num)
+                self.sigma_weights = torch.nn.Linear(out_size, 24)
+                self.sigma_position = torch.nn.Linear(out_size, 3)
 
         mlp_init = self.init_factory.create(**self.initializer)
         if self.has_cnn:
@@ -94,11 +97,14 @@ class CnnGatingNet(nn.Module):
                     torch.nn.init.zeros_(m.bias)
 
         if self.is_continuous:
-            mu_init(self.mu.weight)
+            mu_init(self.mu_weights.weight)
+            mu_init(self.mu_position.weight)
             if self.fixed_sigma:
-                sigma_init(self.sigma)
+                sigma_init(self.sigma_weights)
+                sigma_init(self.sigma_position)
             else:
-                sigma_init(self.sigma.weight)
+                sigma_init(self.sigma_weights.weight)
+                sigma_init(self.sigma_position.weight)
 
     def is_rnn(self):
         return False
@@ -132,11 +138,16 @@ class CnnGatingNet(nn.Module):
             return value, states
 
         if self.is_continuous:
-            mu = self.mu_act(self.mu(out))
+            mu_weights = self.mu_act(self.mu_weights(out))
+            mu_position = self.mu_act(self.mu_position(out))
+            mu = torch.cat((mu_weights, mu_position), dim=-1)
             if self.fixed_sigma:
-                sigma = self.sigma_act(self.sigma)
+                sigma_weights = self.sigma_act(self.sigma_weights)
+                sigma_position = self.sigma_act(self.sigma_position)
             else:
-                sigma = self.sigma_act(self.sigma(out))
+                sigma_weights = self.sigma_act(self.sigma_weights(out))
+                sigma_position = self.sigma_act(self.sigma_position(out))
+            sigma = torch.cat((sigma_weights, sigma_position), dim=-1)
             return mu, mu*0 + sigma, value, states
 
     def _build_sequential_mlp(self, input_size, units, activation, dense_func, d2rl, norm_only_first_layer=False, norm_func_name = None):

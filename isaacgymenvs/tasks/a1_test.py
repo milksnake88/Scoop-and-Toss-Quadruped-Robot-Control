@@ -78,7 +78,7 @@ class A1Test(A1MoE):
         reset = reset | (bed_contact_force_norm > 120.).bool()
 
         time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
-        reset = time_out
+        reset = reset | time_out
 
         self.reset_buf[:] = reset
 

@@ -20,6 +20,7 @@ class A1MoE(VecTask):
 
         # reward scales
         self.rew_scales = {}
+        self.rew_scales["alive"] = self.cfg["env"]["learn"]["aliveRewardScale"]
         self.rew_scales["landing"] = self.cfg["env"]["learn"]["landingRewardScale"]
         self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
 
@@ -303,18 +304,6 @@ class A1MoE(VecTask):
 
     def compute_reward(self, actions):
         pass
-
-
-    def check_termination(self):
-         # reset agents
-        reset = torch.norm(self.contact_forces[:, self.trunk_index, :], dim=1) > 1.
-        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
-        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
-        time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
-        reset = reset | time_out
-
-        self.reset_buf[:] = reset
-
 
     def quaternion_to_6D_matrix(self, base_quat): # q = self.root_states[:, 3:7]
         # Extract the values from root_states

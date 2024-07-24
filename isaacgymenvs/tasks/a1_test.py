@@ -59,9 +59,10 @@ class A1Test(A1MoE):
         plt.show()
 
     def compute_reward(self):
+        rew_alive = self._reward_alive()
         rew_landing = self._reward_landing()
 
-        total_reward = self.rew_scales["landing"] * rew_landing
+        total_reward = self.rew_scales["landing"] * rew_landing + self.rew_scales["alive"] * rew_alive
 
         total_reward = torch.clip(total_reward, 0., None)
         self.rew_buf[:] = total_reward.detach()
@@ -83,6 +84,10 @@ class A1Test(A1MoE):
 
 
     ############## rewards ##############
+
+    def _reward_alive(self):
+        rew_alive = 1.
+        return rew_alive
 
     def _reward_landing(self):
         # compute_box_position_along_bed

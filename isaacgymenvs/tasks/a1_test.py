@@ -66,7 +66,17 @@ class A1Test(A1MoE):
         total_reward = torch.clip(total_reward, 0., None)
         self.rew_buf[:] = total_reward.detach()
 
-        time_out = self.progress_buf >= self.max_episode_length / 10- 1  # no terminal reward for time-outs
+        self.check_termination()
+
+    def check_termination(self):
+        # reset agents
+        reset = torch.norm(self.contact_forces[:, self.trunk_index, :], dim=1) > 1.
+        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
+        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
+        bed_contact_force_norm = torch.norm(self.contact_forces[:, self.bed_index, :], dim=1)
+        reset = reset | (bed_contact_force_norm > 120.).bool()
+
+        time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
         reset = time_out
 
         self.reset_buf[:] = reset

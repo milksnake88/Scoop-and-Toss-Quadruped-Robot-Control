@@ -5,7 +5,7 @@ physics_engine: ${..physics_engine}
 
 env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
-  envSpacing: 4.  # [m]
+  envSpacing: 3.  # [m]
   clipObservations: 5.0
   clipActions: 1.0
 
@@ -50,13 +50,15 @@ env:
     defaultDofDriveMode: 4 # see GymDofDriveModeFlags (0 is none, 1 is pos tgt, 2 is vel tgt, 4 effort)
   
   objectMap:
-    gridSize: 50
+    gridSize: 80
     sigma: 0.5
     
   learn:
     # rewards
     linearVelocityXYRewardScale: 1.0
     angularVelocityZRewardScale: 0.5
+    landingRewardScale: 5.0
+    aliveRewardScale: 0.5
     torqueRewardScale: -0.000025
 
     # normalization

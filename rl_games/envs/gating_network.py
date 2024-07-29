@@ -1,0 +1,234 @@
+from rl_games.common import object_factory
+#from torchsummary import summary
+import numpy as np
+from rl_games.algos_torch import torch_ext
+np.set_printoptions(threshold=np.inf, linewidth=np.inf)
+
+import torch
+from torch import nn
+import torch.nn.functional as F
+
+def _create_initializer(func, **kwargs):
+    return lambda v : func(v, **kwargs)
+
+class GatingNet(nn.Module):
+    def __init__(self, params, **kwargs):
+        nn.Module.__init__(self)
+
+        self.import_objectFactory_builder()
+        actions_num = kwargs.pop('actions_num')
+        input_shape = kwargs.pop('input_shape')
+        self.value_size = kwargs.pop('value_size', 1)
+        self.num_seqs = num_seqs = kwargs.pop('num_seqs', 1)
+
+        self.load(params)
+        self.actor_mlp = nn.Sequential()
+        self.critic_mlp = nn.Sequential()
+
+        mlp_input_shape = input_shape[0]
+
+        in_mlp_shape = mlp_input_shape
+        if len(self.units) == 0:
+            out_size = mlp_input_shape
+        else:
+            out_size = self.units[-1]
+
+        mlp_args = {
+          'input_size' : in_mlp_shape,
+          'units' : self.units,
+          'activation' : self.activation,
+          'norm_func_name' : self.normalization,
+          'dense_func' : torch.nn.Linear,
+          'd2rl' : self.is_d2rl,
+          'norm_only_first_layer' : self.norm_only_first_layer
+        }
+
+        self.actor_mlp = self._build_sequential_mlp(**mlp_args)
+        print("actor_mlp \n", self.actor_mlp)
+        if self.separate:
+            self.critic_mlp = self._build_sequential_mlp(**mlp_args)
+
+        self.value = torch.nn.Linear(out_size, self.value_size)
+        self.value_act = self.activations_factory.create(self.value_activation)
+
+        if self.is_discrete:
+            self.logits = torch.nn.Linear(out_size, actions_num)
+        '''
+            for multidiscrete actions num is a tuple
+        '''
+        if self.is_multi_discrete:
+            self.logits = torch.nn.ModuleList([torch.nn.Linear(out_size, num) for num in actions_num])
+
+        if self.is_continuous:
+            self.mu_weights1 = torch.nn.Linear(out_size, 12)
+            self.mu_weights2 = torch.nn.Linear(out_size, 12)
+            self.mu_act = self.activations_factory.create(self.space_config['mu_activation'])
+            mu_init = self.init_factory.create(**self.space_config['mu_init'])
+            self.sigma_act = self.activations_factory.create(self.space_config['sigma_activation'])
+            sigma_init = self.init_factory.create(**self.space_config['sigma_init'])
+            if self.fixed_sigma:
+                self.sigma_weights1 = nn.Parameter(torch.zeros(12, requires_grad=True, dtype=torch.float32), requires_grad=True)
+                self.sigma_weights2 = nn.Parameter(torch.zeros(12, requires_grad=True, dtype=torch.float32), requires_grad=True)
+            else:
+                self.sigma_weights1 = torch.nn.Linear(out_size, 12)
+                self.sigma_weights2 = torch.nn.Linear(out_size, 12)
+
+        mlp_init = self.init_factory.create(**self.initializer)
+        if self.has_cnn:
+            cnn_init = self.init_factory.create(**self.cnn['initializer'])
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d):
+                cnn_init(m.weight)
+                if getattr(m, "bias", None) is not None:
+                    torch.nn.init.zeros_(m.bias)
+            if isinstance(m, nn.Linear):
+                mlp_init(m.weight)
+                if getattr(m, "bias", None) is not None:
+                    torch.nn.init.zeros_(m.bias)
+
+        if self.is_continuous:
+            mu_init(self.mu_weights1.weight)
+            mu_init(self.mu_weights2.weight)
+            if self.fixed_sigma:
+                sigma_init(self.sigma_weights1)
+                sigma_init(self.sigma_weights2)
+            else:
+                sigma_init(self.sigma_weights1.weight)
+                sigma_init(self.sigma_weights2.weight)
+
+    def is_rnn(self):
+        return False
+
+    def forward(self, obs_dict):
+        obs = obs_dict['obs'] #torch.Size([num_envs, 4144(64*64+48)])
+        states = obs_dict.get('rnn_states', None)
+        dones = obs_dict.get('done', None)
+        bptt_len = obs_dict.get('bptt_len', 0)
+
+        out = obs
+        out = self.actor_mlp(out) #torch.Size([num_envs, 64(mlp output size)]
+        value = self.value_act(self.value(out))
+
+        if self.central_value:
+            return value, states
+
+        if self.is_continuous:
+            mu_weights1 = self.mu_act(self.mu_weights1(out))
+            mu_weights2 = self.mu_act(self.mu_weights2(out))
+            mu = torch.cat((mu_weights1, mu_weights2), dim=-1)
+            if self.fixed_sigma:
+                sigma_weights1 = self.sigma_act(self.sigma_weights1)
+                sigma_weights2 = self.sigma_act(self.sigma_weights2)
+            else:
+                sigma_weights1 = self.sigma_act(self.sigma_weights1(out))
+                sigma_weights2 = self.sigma_act(self.sigma_weights2(out))
+            sigma = torch.cat((sigma_weights1, sigma_weights2), dim=-1)
+            return mu, mu*0 + sigma, value, states
+
+    def _build_sequential_mlp(self, input_size, units, activation, dense_func, d2rl, norm_only_first_layer=False, norm_func_name = None):
+        print('build mlp:', input_size)
+        in_size = input_size
+        layers = []
+        need_norm = True
+        for unit in units:
+            layers.append(dense_func(in_size, unit))
+            layers.append(self.activations_factory.create(activation))
+
+            if not need_norm:
+                continue
+            if norm_only_first_layer and norm_func_name is not None:
+                need_norm = False
+            if norm_func_name == 'layer_norm':
+                layers.append(torch.nn.LayerNorm(unit))
+            elif norm_func_name == 'batch_norm':
+                layers.append(torch.nn.BatchNorm1d(unit))
+            in_size = unit
+
+        return nn.Sequential(*layers)
+
+
+    def load(self, params):
+        self.separate = params.get('separate', False)
+        self.units = params['mlp']['units']
+        self.activation = params['mlp']['activation']
+        self.initializer = params['mlp']['initializer']
+        self.is_d2rl = params['mlp'].get('d2rl', False)
+        self.norm_only_first_layer = params['mlp'].get('norm_only_first_layer', False)
+        self.value_activation = params.get('value_activation', 'None')
+        self.normalization = params.get('normalization', None)
+        self.has_rnn = 'rnn' in params
+        self.has_space = 'space' in params
+        self.central_value = params.get('central_value', False)
+        self.joint_obs_actions_config = params.get('joint_obs_actions', None)
+
+        if self.has_space:
+            self.is_multi_discrete = 'multi_discrete'in params['space']
+            self.is_discrete = 'discrete' in params['space']
+            self.is_continuous = 'continuous'in params['space']
+            if self.is_continuous:
+                self.space_config = params['space']['continuous']
+                self.fixed_sigma = self.space_config['fixed_sigma']
+            elif self.is_discrete:
+                self.space_config = params['space']['discrete']
+            elif self.is_multi_discrete:
+                self.space_config = params['space']['multi_discrete']
+        else:
+            self.is_discrete = False
+            self.is_continuous = False
+            self.is_multi_discrete = False
+
+        if self.has_rnn:
+            self.rnn_units = params['rnn']['units']
+            self.rnn_layers = params['rnn']['layers']
+            self.rnn_name = params['rnn']['name']
+            self.rnn_ln = params['rnn'].get('layer_norm', False)
+            self.is_rnn_before_mlp = params['rnn'].get('before_mlp', False)
+            self.rnn_concat_input = params['rnn'].get('concat_input', False)
+
+        if 'cnn' in params:
+            self.has_cnn = True
+            self.cnn = params['cnn']
+            self.permute_input = self.cnn.get('permute_input', True)
+        else:
+            self.has_cnn = False
+
+    def import_objectFactory_builder(self):
+        self.activations_factory = object_factory.ObjectFactory()
+        self.activations_factory.register_builder('relu', lambda **kwargs : nn.ReLU(**kwargs))
+        self.activations_factory.register_builder('tanh', lambda **kwargs : nn.Tanh(**kwargs))
+        self.activations_factory.register_builder('sigmoid', lambda **kwargs : nn.Sigmoid(**kwargs))
+        self.activations_factory.register_builder('elu', lambda  **kwargs : nn.ELU(**kwargs))
+        self.activations_factory.register_builder('selu', lambda **kwargs : nn.SELU(**kwargs))
+        self.activations_factory.register_builder('swish', lambda **kwargs : nn.SiLU(**kwargs))
+        self.activations_factory.register_builder('gelu', lambda **kwargs: nn.GELU(**kwargs))
+        self.activations_factory.register_builder('softplus', lambda **kwargs : nn.Softplus(**kwargs))
+        self.activations_factory.register_builder('None', lambda **kwargs : nn.Identity())
+
+        self.init_factory = object_factory.ObjectFactory()
+        #self.init_factory.register_builder('normc_initializer', lambda **kwargs : normc_initializer(**kwargs))
+        self.init_factory.register_builder('const_initializer', lambda **kwargs : _create_initializer(nn.init.constant_,**kwargs))
+        self.init_factory.register_builder('orthogonal_initializer', lambda **kwargs : _create_initializer(nn.init.orthogonal_,**kwargs))
+        self.init_factory.register_builder('glorot_normal_initializer', lambda **kwargs : _create_initializer(nn.init.xavier_normal_,**kwargs))
+        self.init_factory.register_builder('glorot_uniform_initializer', lambda **kwargs : _create_initializer(nn.init.xavier_uniform_,**kwargs))
+        self.init_factory.register_builder('variance_scaling_initializer', lambda **kwargs : _create_initializer(torch_ext.variance_scaling_initializer,**kwargs))
+        self.init_factory.register_builder('random_uniform_initializer', lambda **kwargs : _create_initializer(nn.init.uniform_,**kwargs))
+        self.init_factory.register_builder('kaiming_normal', lambda **kwargs : _create_initializer(nn.init.kaiming_normal_,**kwargs))
+        self.init_factory.register_builder('orthogonal', lambda **kwargs : _create_initializer(nn.init.orthogonal_,**kwargs))
+        self.init_factory.register_builder('default', lambda **kwargs : nn.Identity())
+
+
+from rl_games.algos_torch.network_builder import NetworkBuilder
+
+class GatingNetBuilder(NetworkBuilder):
+    def __init__(self, **kwargs):
+        NetworkBuilder.__init__(self)
+
+    def load(self, params):
+        self.params = params
+
+    def build(self, name, **kwargs):
+        return GatingNet(self.params, **kwargs)
+
+    def __call__(self, name, **kwargs):
+        return self.build(name, **kwargs)

@@ -225,14 +225,14 @@ class A2CMoEAgent(a2c_common.ContinuousA2CBase):
             b_loss = 0
         return b_loss
 
-    def get_expert_action(self, expert, obs, expected_position, shovel_bottom_pos, is_deterministic=False):
+    def get_expert_action(self, expert, obs, shovel_bottom_pos, is_deterministic=False):
         # if len(self.obs.size()) > len(self.obs_shape):
         #    self.has_batch_dimension = True
         processed_obs = self._preproc_obs(obs['obs'])
-        prop_root_pos = expected_position
-        shovel_to_prop_dis = torch.norm(prop_root_pos-shovel_bottom_pos, dim=1, keepdim=True)
-        proprioception = processed_obs[:, 2500:] #TODO: cfg로 받기(map size 달라질수도 있음)
-        obs_for_experts = torch.cat((prop_root_pos, shovel_to_prop_dis, proprioception), dim=-1)
+        closest_prop_pos = processed_obs[:, 0:3]
+        shovel_to_prop_dis = torch.norm(closest_prop_pos-shovel_bottom_pos, dim=1, keepdim=True)
+        proprioception = processed_obs[:, 3:] #TODO: cfg로 받기(map size 달라질수도 있음)
+        obs_for_experts = torch.cat((closest_prop_pos, shovel_to_prop_dis, proprioception), dim=-1)
         expert.eval()
         input_dict = {
             'is_train': False,
@@ -308,12 +308,11 @@ class A2CMoEAgent(a2c_common.ContinuousA2CBase):
             if self.has_central_value:
                 self.experience_buffer.update_data('states', n, self.obs['states'])
 
-            actions = res_dict['actions'] # torch.Size([num_envs, 27])
+            actions = res_dict['actions'] # torch.Size([num_envs, 24])
 
             # Split action into weights and position
             weights1 = actions[:, :12]
             weights2 = actions[:, 12:24]
-            position = actions[:, 24:27]
 
             """
             # load experts model
@@ -327,8 +326,8 @@ class A2CMoEAgent(a2c_common.ContinuousA2CBase):
             self.restore(e2_model, e2_checkpoint)
             """
 
-            e1_action = self.get_expert_action(self.e1_model, self.obs, position, shovel_bottom_pos)
-            e2_action = self.get_expert_action(self.e2_model, self.obs, position, shovel_bottom_pos)
+            e1_action = self.get_expert_action(self.e1_model, self.obs, shovel_bottom_pos)
+            e2_action = self.get_expert_action(self.e2_model, self.obs, shovel_bottom_pos)
 
             mixtured_action = weights1*e1_action + weights2*e2_action
 

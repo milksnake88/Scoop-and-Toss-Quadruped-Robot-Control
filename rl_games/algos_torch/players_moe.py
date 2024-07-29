@@ -143,15 +143,14 @@ class PpoPlayerContinuousMoE(BasePlayer):
     def reset(self):
         self.init_rnn()
 
-    def get_expert_action(self, expert, obs, expected_position, shovel_bottom_pos, is_deterministic=False):
+    def get_expert_action(self, expert, obs, shovel_bottom_pos, is_deterministic=False):
         # if len(self.obs.size()) > len(self.obs_shape):
         #    self.has_batch_dimension = True
         processed_obs = self._preproc_obs(obs)
-        prop_root_pos = expected_position
-        print(prop_root_pos)
-        shovel_to_prop_dis = torch.norm(prop_root_pos-shovel_bottom_pos, dim=1, keepdim=True)
-        proprioception = processed_obs[:, 6400:] #TODO: cfg로 받기(map size 달라질수도 있음)
-        obs_for_experts = torch.cat((prop_root_pos, shovel_to_prop_dis, proprioception), dim=-1)
+        closest_prop_pos = processed_obs[:, 0:3]
+        shovel_to_prop_dis = torch.norm(closest_prop_pos-shovel_bottom_pos, dim=1, keepdim=True)
+        proprioception = processed_obs[:, 3:] #TODO: cfg로 받기(map size 달라질수도 있음)
+        obs_for_experts = torch.cat((closest_prop_pos, shovel_to_prop_dis, proprioception), dim=-1)
         expert.eval()
         input_dict = {
             'is_train': False,
@@ -235,10 +234,9 @@ class PpoPlayerContinuousMoE(BasePlayer):
                 # Split action into weights and position
                 weights1 = action[:, :12]
                 weights2 = action[:, 12:24]
-                position = action[:, 24:27]
 
-                e1_action = self.get_expert_action(self.e1_model, obses, position, shovel_bottom_pos)
-                e2_action = self.get_expert_action(self.e2_model, obses, position, shovel_bottom_pos)
+                e1_action = self.get_expert_action(self.e1_model, obses, shovel_bottom_pos)
+                e2_action = self.get_expert_action(self.e2_model, obses, shovel_bottom_pos)
 
                 mixtured_action = weights1*e1_action + weights2*e2_action
 

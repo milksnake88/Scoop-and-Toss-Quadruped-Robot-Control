@@ -349,7 +349,8 @@ class A1MoE(VecTask):
 
 
     def compute_observations(self):
-        closest_prop_positions = self.get_closest_prop_position()
+        closest_prop_pos = self.get_closest_prop_position()
+        closest_prop_pos_wrt_a1_base = self.get_transformed_position(point_global=closest_prop_pos)
         # 1. quaternion
         base_quat = self.a1_root_states[:, 3:7] # quaternion
         rot_matrix = self.quaternion_to_6D_matrix(base_quat)
@@ -360,7 +361,7 @@ class A1MoE(VecTask):
         accelerometer = ((base_lin_vel - self.base_lin_vel_before) / self.dt) - quat_rotate_inverse(base_quat, self.gravity_vec)
         self.base_lin_vel_before = base_lin_vel
 
-        self.obs_buf[:] = torch.cat((closest_prop_positions,
+        self.obs_buf[:] = torch.cat((closest_prop_pos_wrt_a1_base,
                                      rot_matrix,
                                      base_ang_vel,
                                      accelerometer,
@@ -371,6 +372,7 @@ class A1MoE(VecTask):
 
         # extra obs for experts
         shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
+        shovel_bottom_pos_wrt_a1_base = self.get_transformed_position(point_global=shovel_bottom_pos)
         self.extras["shovel_bottom_pos"] = shovel_bottom_pos
 
     def get_closest_prop_position(self):

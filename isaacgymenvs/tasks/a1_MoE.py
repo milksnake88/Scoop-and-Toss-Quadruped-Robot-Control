@@ -379,10 +379,11 @@ class A1MoE(VecTask):
         prop_root_pos = self.prop_root_states[:, :, 0:3]
         base_pos = self.a1_root_states[:, None, 0:3]
         distances = torch.norm(prop_root_pos - base_pos, dim=-1)
+        distances[self.landing.bool()] = float('inf')
         min_distance_indices = torch.argmin(distances, dim=1)
         closest_prop_positions = prop_root_pos[torch.arange(self.num_envs), min_distance_indices]
-        print(prop_root_pos)
-        print(closest_prop_positions)
+        # print(prop_root_pos)
+        # print(closest_prop_positions)
         return closest_prop_positions
 
     def gaussian_kernel(self, x, y, sigma=1.0):

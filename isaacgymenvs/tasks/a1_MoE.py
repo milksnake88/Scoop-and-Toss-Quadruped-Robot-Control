@@ -101,7 +101,9 @@ class A1MoE(VecTask):
         self.dof_pos = self.dof_state.view(self.num_envs, self.dofs_per_env, 2)[..., 0]
         self.rb_states = gymtorch.wrap_tensor(_rb_states).view(self.num_envs, -1, 13)
         self.dof_vel = self.dof_state.view(self.num_envs, self.dofs_per_env, 2)[..., 1]
-        self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)
+        self.contact_forces = gymtorch.wrap_tensor(net_contact_forces)
+        self.a1_contact_forces= self.contact_forces.view(self.num_envs, -1, 3)[:, :self.num_bodies, :]
+        self.prop_contact_forces = self.contact_forces.view(self.num_envs, -1, 3)[:, self.num_bodies:, :]
         self.torques = gymtorch.wrap_tensor(torques).view(self.num_envs, self.num_dof)
         self.a1_root_states = self.root_states.view(self.num_envs, self.actors_per_env, 13)[:, 0, :]
         self.prop_root_states = self.root_states.view(self.num_envs, self.actors_per_env, 13)[:, 1:self.num_boxes+1, :]

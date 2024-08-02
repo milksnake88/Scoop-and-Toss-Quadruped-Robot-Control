@@ -371,7 +371,7 @@ class A1MoEPassiveJointTwoActions(VecTask):
 
 
     def compute_observations(self):
-        closest_prop_pos = self.get_closest_prop_position()
+        _, closest_prop_pos = self.get_closest_prop_position()
         pos_of_prop_wrt_a1_base = self.get_transformed_position(point_global=closest_prop_pos)
         # 1. quaternion
         base_quat = self.a1_root_states[:, 3:7] # quaternion
@@ -407,7 +407,7 @@ class A1MoEPassiveJointTwoActions(VecTask):
         distances[self.landing.bool()] = float('inf')
         min_distance_indices = torch.argmin(distances, dim=1)
         closest_prop_positions = prop_root_pos[torch.arange(self.num_envs), min_distance_indices]
-        return closest_prop_positions
+        return min_distance_indices, closest_prop_positions
 
     def gaussian_kernel(self, x, y, sigma=1.0):
         return torch.exp(-torch.sum((x-y)**2, dim=-1) / (2*sigma**2))

@@ -15,9 +15,10 @@ from isaacgymenvs.tasks.a1_with_shovel_passive_joint import A1WithShovelPassiveJ
 from isaacgymenvs.tasks.a1_with_shovel_dagger_passive_joint import A1WithShovelDaggerPassiveJoint
 from isaacgymenvs.tasks.a1_with_shovel_passive_joint_with_camera import A1WithShovelPassiveJointWithCamera
 from isaacgymenvs.tasks.a1_with_shovel_dagger_fixed_joint import A1WithShovelDaggerFixedJoint
+from isaacgymenvs.tasks.a1_MoE_passive_joint_two_actions import A1MoEPassiveJointTwoActions
 from isaacgymenvs.tasks.a1_MoE import A1MoE
 
-class A1Test(A1MoE):
+class A1Test(A1MoEPassiveJointTwoActions):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
@@ -71,11 +72,24 @@ class A1Test(A1MoE):
 
     def check_termination(self):
         # reset agents
-        reset = torch.norm(self.contact_forces[:, self.trunk_index, :], dim=1) > 1.
-        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
-        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
-        bed_contact_force_norm = torch.norm(self.contact_forces[:, self.bed_index, :], dim=1)
+        reset = torch.norm(self.a1_contact_forces[:, self.trunk_index, :], dim=1) > 1.
+        reset = reset | torch.any(torch.norm(self.a1_contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
+        reset = reset | torch.any(torch.norm(self.a1_contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
+        bed_contact_force_norm = torch.norm(self.a1_contact_forces[:, self.bed_index, :], dim=1)
         reset = reset | (bed_contact_force_norm > 120.).bool()
+
+        min_distance_indices, closest_prop_pos = self.get_closest_prop_position()
+        shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
+        distance = torch.norm(closest_prop_pos[:, 0:2] - shovel_bottom_pos[:, 0:2], dim=-1)
+
+        distance_condition = distance < 0.08
+        contact_force_condition = torch.norm(self.prop_contact_forces[torch.arange(self.num_envs), min_distance_indices], dim=1) > 0.
+        landing_condition = ~self.landing[torch.arange(self.num_envs), min_distance_indices].bool()
+
+        reset = distance_condition & contact_force_condition & landing_condition
+
+        reset_indices = torch.where(reset)[0]
+        #print(reset_indices, "prop", reset)
 
         time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
         reset = reset | time_out

@@ -25,6 +25,7 @@ class A1Test(A1MoEPassiveJointTwoActions):
         self.base_up_vector = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.base_up_vector[:, 2] = 1. # bed joint position in base frame
         self.bed_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "bed_bottom")
+        self.counter = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
 
     def draw_lines(self, start, end):
         # type: (Tensor, Tensor) -> None
@@ -80,14 +81,25 @@ class A1Test(A1MoEPassiveJointTwoActions):
 
         min_distance_indices, closest_prop_pos = self.get_closest_prop_position()
         shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
-        distance = torch.norm(closest_prop_pos[:, 0:2] - shovel_bottom_pos[:, 0:2], dim=-1)
 
-        distance_condition = distance < 0.08
-        contact_force_condition = torch.norm(self.prop_contact_forces[torch.arange(self.num_envs), min_distance_indices], dim=1) > 0.
+        closest_prop_contact_force = torch.norm(self.prop_contact_forces[torch.arange(self.num_envs), min_distance_indices], dim=1)
+        bed_prop_contact_differences = torch.sqrt(torch.square(bed_contact_force_norm-closest_prop_contact_force))
+        bed_prop_contact = (bed_contact_force_norm>0.) & (closest_prop_contact_force>0.) & (bed_prop_contact_differences<0.01)
+
+        distance = torch.norm(closest_prop_pos - shovel_bottom_pos, dim=-1)
+
+        distance_condition = distance < 0.15
+        contact_force_condition = closest_prop_contact_force > 0.
         landing_condition = ~self.landing[torch.arange(self.num_envs), min_distance_indices].bool()
 
-        throwing_condition = distance_condition & contact_force_condition & landing_condition
+        for env_idx in range(self.num_envs):
+            if distance_condition[env_idx]:
+                self.counter[env_idx] += 1
+            else:
+                self.counter[env_idx] = 0
 
+        count_condition = self.counter > 0.7 / self.dt
+        throwing_condition = distance_condition & contact_force_condition & landing_condition & count_condition & ~bed_prop_contact
         reset = reset | throwing_condition
 
         time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs

@@ -86,10 +86,9 @@ class A1Test(A1MoEPassiveJointTwoActions):
         contact_force_condition = torch.norm(self.prop_contact_forces[torch.arange(self.num_envs), min_distance_indices], dim=1) > 0.
         landing_condition = ~self.landing[torch.arange(self.num_envs), min_distance_indices].bool()
 
-        reset = distance_condition & contact_force_condition & landing_condition
+        throwing_condition = distance_condition & contact_force_condition & landing_condition
 
-        reset_indices = torch.where(reset)[0]
-        #print(reset_indices, "prop", reset)
+        reset = reset | throwing_condition
 
         time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
         reset = reset | time_out

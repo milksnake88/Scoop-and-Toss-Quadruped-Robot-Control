@@ -10,9 +10,11 @@ from rl_games.common import tr_helpers
 
 from rl_games.algos_torch import a2c_continuous
 from rl_games.algos_torch import a2c_continuous_moe
+from rl_games.algos_torch import a2c_continuous_moe_two_actions
 from rl_games.algos_torch import a2c_discrete
 from rl_games.algos_torch import players
 from rl_games.algos_torch import players_moe
+from rl_games.algos_torch import players_moe_two_actions
 from rl_games.common.algo_observer import DefaultAlgoObserver
 from rl_games.algos_torch import sac_agent
 
@@ -38,6 +40,7 @@ class Runner:
         self.algo_factory = object_factory.ObjectFactory()
         self.algo_factory.register_builder('a2c_continuous', lambda **kwargs : a2c_continuous.A2CAgent(**kwargs))
         self.algo_factory.register_builder('a2c_continuous_moe', lambda **kwargs : a2c_continuous_moe.A2CMoEAgent(**kwargs))
+        self.algo_factory.register_builder('a2c_continuous_moe_two_actions', lambda **kwargs : a2c_continuous_moe_two_actions.A2CMoETwoActionsAgent(**kwargs))
         self.algo_factory.register_builder('a2c_discrete', lambda **kwargs : a2c_discrete.DiscreteA2CAgent(**kwargs))
         self.algo_factory.register_builder('sac', lambda **kwargs: sac_agent.SACAgent(**kwargs))
         #self.algo_factory.register_builder('dqn', lambda **kwargs : dqnagent.DQNAgent(**kwargs))
@@ -45,6 +48,7 @@ class Runner:
         self.player_factory = object_factory.ObjectFactory()
         self.player_factory.register_builder('a2c_continuous', lambda **kwargs : players.PpoPlayerContinuous(**kwargs))
         self.player_factory.register_builder('a2c_continuous_moe', lambda **kwargs : players_moe.PpoPlayerContinuousMoE(**kwargs))
+        self.player_factory.register_builder('a2c_continuous_moe_two_actions', lambda **kwargs : players_moe_two_actions.PpoPlayerContinuousMoETwoActions(**kwargs))
         self.player_factory.register_builder('a2c_discrete', lambda **kwargs : players.PpoPlayerDiscrete(**kwargs))
         self.player_factory.register_builder('sac', lambda **kwargs : players.SACPlayer(**kwargs))
         #self.player_factory.register_builder('dqn', lambda **kwargs : players.DQNPlayer(**kwargs))

@@ -99,6 +99,8 @@ class A2CMoETwoActionsAgent(a2c_common.ContinuousA2CBase):
         self.restore(self.e1_model, e1_checkpoint)
         self.restore(self.e2_model, e2_checkpoint)
 
+        self.shovel_to_prop_dis = torch.tensor([[0.]], device=self.ppo_device, requires_grad=False)
+
     def load_experts(self, config_path):
         with open(config_path, 'r') as stream:
             return yaml.safe_load(stream)
@@ -222,13 +224,15 @@ class A2CMoETwoActionsAgent(a2c_common.ContinuousA2CBase):
             b_loss = 0
         return b_loss
 
-    def get_expert_action(self, expert, obs, shovel_bottom_pos, is_deterministic=False):
+    def get_expert_action(self, expert, obs, shovel_to_prop_dis, is_deterministic=False):
         # if len(self.obs.size()) > len(self.obs_shape):
         #    self.has_batch_dimension = True
         processed_obs = self._preproc_obs(obs['obs'])
         closest_prop_pos = processed_obs[:, 0:3]
-        shovel_to_prop_dis = torch.norm(closest_prop_pos-shovel_bottom_pos, dim=1, keepdim=True)
         proprioception = processed_obs[:, 3:] #TODO: cfg로 받기(map size 달라질수도 있음)
+        num_envs = proprioception.shape[0]
+        if shovel_to_prop_dis.shape[0] != num_envs:
+            shovel_to_prop_dis = shovel_to_prop_dis.repeat(num_envs, 1)
         obs_for_experts = torch.cat((closest_prop_pos, shovel_to_prop_dis, proprioception), dim=-1)
         expert.eval()
         input_dict = {
@@ -292,8 +296,6 @@ class A2CMoETwoActionsAgent(a2c_common.ContinuousA2CBase):
 
         step_time = 0.0
 
-        #TODO
-        shovel_bottom_pos = torch.tensor([[0.2025, 0.1308, -0.323]], device=self.ppo_device, requires_grad=False)
         for n in range(self.horizon_length):
             if self.use_action_masks:
                 masks = self.vec_env.get_action_masks()
@@ -314,8 +316,8 @@ class A2CMoETwoActionsAgent(a2c_common.ContinuousA2CBase):
             weights1 = actions[:, 0].unsqueeze(-1)
             weights2 = actions[:, 1].unsqueeze(-1)
 
-            e1_action = self.get_expert_action(self.e1_model, self.obs, shovel_bottom_pos)
-            e2_action = self.get_expert_action(self.e2_model, self.obs, shovel_bottom_pos)
+            e1_action = self.get_expert_action(self.e1_model, self.obs, self.shovel_to_prop_dis)
+            e2_action = self.get_expert_action(self.e2_model, self.obs, self.shovel_to_prop_dis)
 
             mixtured_action = weights1*e1_action + weights2*e2_action
 
@@ -325,7 +327,7 @@ class A2CMoETwoActionsAgent(a2c_common.ContinuousA2CBase):
 
             step_time += (step_time_end - step_time_start)
 
-            shovel_bottom_pos = infos["shovel_bottom_pos"]
+            self.shovel_to_prop_dis = infos["shovel_to_prop_dis"]
 
             shaped_rewards = self.rewards_shaper(rewards)
             if self.value_bootstrap and 'time_outs' in infos:

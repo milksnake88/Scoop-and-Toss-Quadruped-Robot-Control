@@ -399,8 +399,8 @@ class A1MoEPassiveJointTwoActions(VecTask):
 
         # extra obs for experts
         shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
-        shovel_bottom_pos_wrt_a1_base = self.get_transformed_position(point_global=shovel_bottom_pos)
-        self.extras["shovel_bottom_pos"] = shovel_bottom_pos_wrt_a1_base
+        shovel_to_prop_dis = torch.norm(closest_prop_pos-shovel_bottom_pos, dim=-1, keepdim=True)
+        self.extras["shovel_to_prop_dis"] = shovel_to_prop_dis
 
     def get_closest_prop_position(self):
         prop_root_pos = self.prop_root_states[:, :, 0:3]

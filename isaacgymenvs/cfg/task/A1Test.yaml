@@ -59,6 +59,7 @@ env:
     angularVelocityZRewardScale: 0.5
     landingRewardScale: 5.0
     aliveRewardScale: 0.5
+    pickingRewardScale: 5
     torqueRewardScale: -0.000025
 
     # normalization

@@ -22,6 +22,7 @@ class A1MoEPassiveJointTwoActions(VecTask):
         self.rew_scales = {}
         self.rew_scales["alive"] = self.cfg["env"]["learn"]["aliveRewardScale"]
         self.rew_scales["landing"] = self.cfg["env"]["learn"]["landingRewardScale"]
+        self.rew_scales["picking"] = self.cfg["env"]["learn"]["pickingRewardScale"]
         self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
 
         # randomization
@@ -185,7 +186,8 @@ class A1MoEPassiveJointTwoActions(VecTask):
         a1_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
         a1_asset_options.replace_cylinder_with_capsule = False
         a1_asset_options.flip_visual_attachments = True
-        a1_asset_options.fix_base_link = self.cfg["env"]["urdfAsset"]["fixBaseLink"]
+        #a1_asset_options.fix_base_link = self.cfg["env"]["urdfAsset"]["fixBaseLink"]
+        a1_asset_options.fix_base_link = True
         a1_asset_options.thickness = 0.003 #Thickness of the collision shapes. Sets how far objects should come to rest from the surface of this body
         a1_asset_options.disable_gravity = False
         a1_asset_options.vhacd_enabled= True

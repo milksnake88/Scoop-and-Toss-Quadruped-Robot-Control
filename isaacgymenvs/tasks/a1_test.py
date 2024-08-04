@@ -63,8 +63,9 @@ class A1Test(A1MoEPassiveJointTwoActions):
     def compute_reward(self):
         rew_alive = self._reward_alive()
         rew_landing = self._reward_landing()
+        rew_picking = self._reward_picking()
 
-        total_reward = self.rew_scales["landing"] * rew_landing + self.rew_scales["alive"] * rew_alive
+        total_reward = self.rew_scales["landing"] * rew_landing + self.rew_scales["alive"] * rew_alive + self.rew_scales["picking"] * rew_picking
 
         total_reward = torch.clip(total_reward, 0., None)
         self.rew_buf[:] = total_reward.detach()
@@ -136,3 +137,12 @@ class A1Test(A1MoEPassiveJointTwoActions):
         self.landing += landing
 
         return rew_landing
+
+    def _reward_picking(self):
+        min_distance_indices, closest_prop_pos = self.get_closest_prop_position()
+        shovel_bottom_contact_force = torch.norm(self.a1_contact_forces[:, self.shovel_bottom_index, :], dim=1)
+        closest_prop_contact_force = torch.norm(self.prop_contact_forces[torch.arange(self.num_envs), min_distance_indices], dim=1)
+        shovel_prop_contact_differences = torch.sqrt(torch.square(shovel_bottom_contact_force-closest_prop_contact_force))
+        shovel_prop_contact = (shovel_bottom_contact_force>0.) & (closest_prop_contact_force>0.) & (shovel_prop_contact_differences<0.01)
+
+        return shovel_prop_contact

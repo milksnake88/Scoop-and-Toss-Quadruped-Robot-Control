@@ -2,7 +2,7 @@ params:
   seed: ${...seed}
 
   algo:
-    name: a2c_continuous_moe
+    name: a2c_continuous_moe_two_actions
 
   experts:
     expert1:
@@ -25,7 +25,7 @@ params:
     name: continuous_a2c_logstd
 
   network:
-    name: gating_network # actor_critic
+    name: gating_network_two_actions # actor_critic
     separate: False
 
     space:
@@ -115,6 +115,7 @@ params:
     mini_epochs: 5
     critic_coef: 2
     clip_value: True
+    clip_actions: False
     seq_len: 4 # only for rnn
     bounds_loss_coef: 0.001
 

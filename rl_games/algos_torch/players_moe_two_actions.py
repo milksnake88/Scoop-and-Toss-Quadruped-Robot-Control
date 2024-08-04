@@ -66,6 +66,8 @@ class PpoPlayerContinuousMoETwoActions(BasePlayer):
         self.restore_experts(self.e1_model, e1_checkpoint)
         self.restore_experts(self.e2_model, e2_checkpoint)
 
+        self.shovel_to_prop_dis = torch.tensor([[0.]], device=self.device, requires_grad=False)
+
     def load_experts(self, config_path):
         with open(config_path, 'r') as stream:
             return yaml.safe_load(stream)
@@ -140,13 +142,15 @@ class PpoPlayerContinuousMoETwoActions(BasePlayer):
     def reset(self):
         self.init_rnn()
 
-    def get_expert_action(self, expert, obs, shovel_bottom_pos, is_deterministic=False):
+    def get_expert_action(self, expert, obs, shovel_to_prop_dis, is_deterministic=False):
         # if len(self.obs.size()) > len(self.obs_shape):
         #    self.has_batch_dimension = True
         processed_obs = self._preproc_obs(obs)
         closest_prop_pos = processed_obs[:, 0:3]
-        shovel_to_prop_dis = torch.norm(closest_prop_pos-shovel_bottom_pos, dim=1, keepdim=True)
         proprioception = processed_obs[:, 3:] #TODO: cfg로 받기(map size 달라질수도 있음)
+        num_envs = proprioception.shape[0]
+        if shovel_to_prop_dis.shape[0] != num_envs:
+            shovel_to_prop_dis = shovel_to_prop_dis.repeat(num_envs, 1)
         obs_for_experts = torch.cat((closest_prop_pos, shovel_to_prop_dis, proprioception), dim=-1)
         expert.eval()
         input_dict = {
@@ -216,7 +220,6 @@ class PpoPlayerContinuousMoETwoActions(BasePlayer):
 
             print_game_res = False
 
-            shovel_bottom_pos = torch.tensor([[0.2025, 0.1308, 0.027]], device=self.device, requires_grad=False)
             for n in range(self.max_steps):
                 if self.evaluation and n % self.update_checkpoint_freq == 0:
                     self.maybe_load_new_checkpoint()
@@ -233,8 +236,8 @@ class PpoPlayerContinuousMoETwoActions(BasePlayer):
                 weights2 = action[:, 1].unsqueeze(-1)
                 #print("1", weights1)
                 #print("2", weights2)
-                e1_action = self.get_expert_action(self.e1_model, obses, shovel_bottom_pos)
-                e2_action = self.get_expert_action(self.e2_model, obses, shovel_bottom_pos)
+                e1_action = self.get_expert_action(self.e1_model, obses, self.shovel_to_prop_dis)
+                e2_action = self.get_expert_action(self.e2_model, obses, self.shovel_to_prop_dis)
 
                 mixtured_action = weights1*e1_action + weights2*e2_action
 
@@ -242,7 +245,7 @@ class PpoPlayerContinuousMoETwoActions(BasePlayer):
                 cr += r
                 steps += 1
 
-                shovel_bottom_pos = info["shovel_bottom_pos"]
+                self.shovel_to_prop_dis = info["shovel_to_prop_dis"]
 
                 if render:
                     self.env.render(mode='human')

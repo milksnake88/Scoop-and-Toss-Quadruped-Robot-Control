@@ -236,7 +236,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
 
         # load a1 asset
         #a1_asset_file = "urdf/a1_with_shovel_description/urdf/a1_with_shovel_passive_joint_for_picking.urdf"
-        a1_asset_file = "urdf/a1_with_shovel_description/urdf/a1_with_shovel_passive_joint.urdf"
+        a1_asset_file = "urdf/a1_with_shovel_description/urdf/a1_with_shovel_passive_joint_black.urdf"
         a1_asset_options = gymapi.AssetOptions()
         a1_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
         a1_asset_options.replace_cylinder_with_capsule = False
@@ -550,12 +550,28 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.dof_vel[env_ids] = velocities
 
         # reset root state for all actors in selected envs
-        self.root_states[self.a1_indices[env_ids]] = self.a1_init_state[env_ids].clone()
+        # self.root_states[self.a1_indices[env_ids]] = self.a1_init_state[env_ids].clone()
+        random_a1_init_state = self.a1_init_state[env_ids].clone()
+        theta_deg = torch.FloatTensor(1).uniform_(-30, 30)
+        # 각도를 라디안으로 변환
+        theta = theta_deg * (torch.pi / 180.0)
+        random_a1_init_state[:, 3:7] = torch.tensor([0., 0., torch.sin(theta / 2), torch.cos(theta / 2)])
+        self.root_states[self.a1_indices[env_ids]] = random_a1_init_state
 
-        prop_position_offset = torch_rand_float(0.9, 1.1, (len(env_ids), 2), device=self.device)
-        temp = self.prop_init_state[env_ids].clone()
-        temp[:, 0:2] *= prop_position_offset
-        self.root_states[self.prop_indices[env_ids]] = temp
+
+        #prop_position_offset_x = torch_rand_float(-8.0, 0., (len(env_ids), 1), device=self.device)
+        #prop_position_offset_y = torch_rand_float(-4.0, 4.0, (len(env_ids), 1), device=self.device)
+        prop_position_offset_x = torch_rand_float(-1.0, 1.0, (len(env_ids), 1), device=self.device)
+        prop_position_offset_y = torch_rand_float(-1.0, 1.0, (len(env_ids), 1), device=self.device)
+        random_prop_init_pos = self.prop_init_state[env_ids].clone()
+        random_prop_init_pos[:, 0] += prop_position_offset_x.squeeze(-1)
+        random_prop_init_pos[:, 1] += prop_position_offset_y.squeeze(-1)
+        self.root_states[self.prop_indices[env_ids]] = random_prop_init_pos
+
+        #prop_position_offset = torch_rand_float(0.9, 1.1, (len(env_ids), 2), device=self.device)
+        #temp = self.prop_init_state[env_ids].clone()
+        #temp[:, 0:2] *= prop_position_offset
+        #self.root_states[self.prop_indices[env_ids]] = temp
 
         actor_indices = self.all_actor_indices[env_ids].flatten()
         self.gym.set_actor_root_state_tensor_indexed(self.sim,

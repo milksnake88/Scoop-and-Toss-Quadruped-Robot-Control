@@ -47,7 +47,7 @@ class A1MoEPassiveJointTwoActions(VecTask):
 
         # box init state. TODO: add to cfg file
         #box_pos = [0.24, 0.13, 0.08]
-        box_pos = [3., 0.13, 0.025]
+        box_pos = [0., 0.0, 0.025]
         box_rot = [0., 0., 0., 1.]
         box_v_lin = [0., 0., 0.]
         box_v_ang = [0., 0., 0.]

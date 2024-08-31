@@ -153,6 +153,14 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.shovel_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel_bottom")
         self.rigid_body_properties = self.gym.get_actor_rigid_shape_properties(self.envs[0], self.a1_handles[0])
         print("sssssss", self.rigid_body_properties[7].friction)
+
+        self.randing_cnt = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        self.episode_cnt = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_forward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_backward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_right = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_left = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
 
     def create_sim(self):
@@ -537,6 +545,11 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
                                      self.actions,
                                      ), dim=-1)
 
+    def update_curriculum(self, env_idx):
+        self.offset_forward[env_idx] += 0.1
+        self.offset_backward[env_idx] -= 0.05
+        self.offset_right[env_idx] += 0.08
+        self.offset_left[env_idx] -= 0.08
 
     def reset_idx(self, env_ids):
         # Randomization can happen only at reset time, since it can reset actor positions on GPU
@@ -558,20 +571,20 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         random_a1_init_state[:, 3:7] = torch.tensor([0., 0., torch.sin(theta / 2), torch.cos(theta / 2)])
         self.root_states[self.a1_indices[env_ids]] = random_a1_init_state
 
-
-        #prop_position_offset_x = torch_rand_float(-8.0, 0., (len(env_ids), 1), device=self.device)
-        #prop_position_offset_y = torch_rand_float(-4.0, 4.0, (len(env_ids), 1), device=self.device)
-        prop_position_offset_x = torch_rand_float(-1.0, 1.0, (len(env_ids), 1), device=self.device)
-        prop_position_offset_y = torch_rand_float(-1.0, 1.0, (len(env_ids), 1), device=self.device)
-        random_prop_init_pos = self.prop_init_state[env_ids].clone()
-        random_prop_init_pos[:, 0] += prop_position_offset_x.squeeze(-1)
-        random_prop_init_pos[:, 1] += prop_position_offset_y.squeeze(-1)
-        self.root_states[self.prop_indices[env_ids]] = random_prop_init_pos
-
-        #prop_position_offset = torch_rand_float(0.9, 1.1, (len(env_ids), 2), device=self.device)
-        #temp = self.prop_init_state[env_ids].clone()
-        #temp[:, 0:2] *= prop_position_offset
-        #self.root_states[self.prop_indices[env_ids]] = temp
+        random_prop_init_pos = self.prop_init_state.clone()
+        for env_idx in env_ids:
+            if self.randing_cnt[env_idx]:
+                self.episode_cnt[env_idx] += 1
+            if (self.episode_cnt[env_idx]>4) & ((self.randing_cnt[env_idx]/self.episode_cnt[env_idx])>0.5):
+                self.update_curriculum(env_idx)
+                self.episode_cnt[env_idx] = 0
+                self.randing_cnt[env_idx] = 0
+            prop_position_offset_x = torch_rand_float(self.offset_backward[env_idx], self.offset_forward[env_idx], (1, 1), device=self.device)
+            prop_position_offset_y = torch_rand_float(self.offset_left[env_idx], self.offset_right[env_idx], (1, 1), device=self.device)
+            random_prop_init_pos[env_idx, 0] += prop_position_offset_x.item()
+            random_prop_init_pos[env_idx, 1] += prop_position_offset_y.item()
+            self.root_states[self.prop_indices[env_idx]] = random_prop_init_pos[env_idx]
+            #print(self.root_states[self.prop_indices[env_idx]][0:2])
 
         actor_indices = self.all_actor_indices[env_ids].flatten()
         self.gym.set_actor_root_state_tensor_indexed(self.sim,

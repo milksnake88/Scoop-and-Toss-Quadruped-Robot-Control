@@ -206,6 +206,7 @@ class A1Throwing(A1WithShovelDaggerPassiveJoint):
                     print(env_idx, "prop", reset)
                 elif self.landing[env_idx] > 5 / self.dt:
                     reset[env_idx] = True
+                    self.randing_cnt[env_idx] += 1
                     print(env_idx, "landing", reset)
 
         time_out = self.progress_buf >= self.max_episode_length / 5- 1  # no terminal reward for time-outs

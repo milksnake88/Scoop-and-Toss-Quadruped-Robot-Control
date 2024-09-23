@@ -2,17 +2,17 @@ params:
   seed: ${...seed}
 
   algo:
-    name: a2c_continuous_moe_two_actions
+    name: a2c_discrete_moe_two_actions #a2c_continuous_moe_two_actions #a2c_discrete_moe_two_actions
 
   experts:
     expert1:
       name: 'a1_run_test38'
-      checkpoint: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/a1_run_test38/nn/a1_run_test38.pth' #abs path
-      config: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/a1_run_test38/config.yaml'
+      checkpoint: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/a1_run_test46/nn/a1_run_test46.pth' #abs path
+      config: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/a1_run_test46/config.yaml'
     expert2:
       name: 'pi_pick_throw_test14'
-      checkpoint:  '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/pi_pick_throw_test14/nn/pi_pick_throw_test14.pth' #abs path
-      config: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/pi_pick_throw_test14/config.yaml'
+      checkpoint:  '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/pi_pick_throw_test36/nn/pi_pick_throw_test36.pth' #abs path
+      config: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/pi_pick_throw_test36/config.yaml'
     env_info:
       actions_num: 12
       agent: 1
@@ -22,15 +22,16 @@ params:
 
 
   model:
-    name: continuous_a2c_logstd
+    name: discrete_a2c #discrete_a2c #continuous_a2c_logstd
 
   network:
     name: gating_network_two_actions # actor_critic
     separate: False
 
     space:
-      continuous:
-        mu_activation: None
+      discrete:
+      #continuous:
+        mu_activation: None #sigmoid # None
         sigma_activation: None
         mu_init:
           name: default
@@ -39,7 +40,7 @@ params:
           val: 0. # std = 1.
         fixed_sigma: True
 
-    cnn:
+    #cnn:
       type: conv2d
       activation: relu
       initializer:
@@ -111,7 +112,7 @@ params:
     truncate_grads: True
     grad_norm: 1.
     horizon_length: 24
-    minibatch_size: 768 # 2048
+    minibatch_size: 32 # 2048
     mini_epochs: 5
     critic_coef: 2
     clip_value: True

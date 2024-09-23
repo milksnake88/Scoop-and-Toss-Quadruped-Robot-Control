@@ -33,7 +33,7 @@ def euler_from_quaternion(quat_angle):
 
         return roll_x, pitch_y, yaw_z # in radians
 
-class A1Run(A1WithShovelDaggerFixedJoint):
+class A1Run(A1WithShovelDaggerPassiveJoint):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)

@@ -17,8 +17,31 @@ from isaacgymenvs.tasks.a1_with_shovel_passive_joint_with_camera import A1WithSh
 from isaacgymenvs.tasks.a1_with_shovel_dagger_fixed_joint import A1WithShovelDaggerFixedJoint
 from isaacgymenvs.tasks.a1_MoE_passive_joint_two_actions import A1MoEPassiveJointTwoActions
 from isaacgymenvs.tasks.a1_MoE import A1MoE
+from isaacgymenvs.tasks.a1_MoE_passive_joint_two_actions_test import A1MoEPassiveJointTwoActionsTest
 
-class A1Test(A1MoEPassiveJointTwoActions):
+def euler_from_quaternion(quat_angle):
+        """
+        Convert a quaternion into euler angles (roll, pitch, yaw)
+        roll is rotation around x in radians (counterclockwise)
+        pitch is rotation around y in radians (counterclockwise)
+        yaw is rotation around z in radians (counterclockwise)
+        """
+        x = quat_angle[:,0]; y = quat_angle[:,1]; z = quat_angle[:,2]; w = quat_angle[:,3]
+        t0 = +2.0 * (w * x + y * z)
+        t1 = +1.0 - 2.0 * (x * x + y * y)
+        roll_x = torch.atan2(t0, t1)
+
+        t2 = +2.0 * (w * y - z * x)
+        t2 = torch.clip(t2, -1, 1)
+        pitch_y = torch.asin(t2)
+
+        t3 = +2.0 * (w * z + x * y)
+        t4 = +1.0 - 2.0 * (y * y + z * z)
+        yaw_z = torch.atan2(t3, t4)
+
+        return roll_x, pitch_y, yaw_z # in radians
+
+class A1Test(A1MoEPassiveJointTwoActionsTest):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
@@ -26,6 +49,10 @@ class A1Test(A1MoEPassiveJointTwoActions):
         self.base_up_vector[:, 2] = 1. # bed joint position in base frame
         self.bed_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "bed_bottom")
         self.counter = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.shovel_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel")
+        self.counter = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.commands = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        self.commands[:, 0] = 0.3
 
     def draw_lines(self, start, end):
         # type: (Tensor, Tensor) -> None
@@ -64,6 +91,8 @@ class A1Test(A1MoEPassiveJointTwoActions):
         rew_alive = self._reward_alive()
         rew_landing = self._reward_landing()
         rew_picking = self._reward_picking()
+        rew_experts = self._reward_experts()
+        #print(rew_experts)
 
         total_reward = self.rew_scales["landing"] * rew_landing + self.rew_scales["alive"] * rew_alive + self.rew_scales["picking"] * rew_picking
 
@@ -80,6 +109,7 @@ class A1Test(A1MoEPassiveJointTwoActions):
         bed_contact_force_norm = torch.norm(self.a1_contact_forces[:, self.bed_index, :], dim=1)
         reset = reset | (bed_contact_force_norm > 120.).bool()
 
+        """
         min_distance_indices, closest_prop_pos = self.get_closest_prop_position()
         shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
 
@@ -102,6 +132,7 @@ class A1Test(A1MoEPassiveJointTwoActions):
         count_condition = self.counter > 0.7 / self.dt
         throwing_condition = distance_condition & contact_force_condition & landing_condition & count_condition & ~bed_prop_contact
         reset = reset | throwing_condition
+        """
 
         time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
         reset = reset | time_out
@@ -146,3 +177,38 @@ class A1Test(A1MoEPassiveJointTwoActions):
         shovel_prop_contact = (shovel_bottom_contact_force>0.) & (closest_prop_contact_force>0.) & (shovel_prop_contact_differences<0.01)
 
         return shovel_prop_contact
+
+
+    def _reward_experts(self):
+        # distance reward
+        min_distance_indices, closest_prop_pos = self.get_closest_prop_position()
+        bed_bottom_position = self.rb_states[:, self.bed_bottom_index, 0:3]
+        bed_prop_distance = torch.norm(closest_prop_pos - bed_bottom_position, dim=-1)
+        rew_bed_prop_distance = torch.exp(-bed_prop_distance/0.25)
+
+        # box upward reward
+        rew_closest_box_upward = closest_prop_pos[:, 2]
+
+        # action rate reward
+
+        # reward tracking goal vel
+        target_pos_rel = closest_prop_pos[:, :3] - self.rb_states[:, self.shovel_bottom_index, 0:3]
+        target_pos_rel_norm = torch.norm(target_pos_rel, dim=-1, keepdim=True)
+        target_vec_norm = target_pos_rel / (target_pos_rel_norm + 1e-5)
+        cur_vel = self.rb_states[:, self.shovel_index, 7:9]
+        rew_tracking_goal_vel = torch.minimum(torch.sum(target_vec_norm[:, :2] * cur_vel, dim=-1), self.commands[:, 0] + 1e-5)
+
+        base_quat = self.a1_root_states[:, 3:7]
+        target_yaw = torch.atan2(target_vec_norm[:, 1], target_vec_norm[:, 0])
+        _, pitch, yaw = euler_from_quaternion(base_quat)
+        rew_tracking_yaw = torch.exp(-torch.abs(target_yaw - yaw))
+
+        rew_picking = self._reward_picking()
+        rew_picking_throwing = 15 * rew_picking + (30 * rew_bed_prop_distance * rew_closest_box_upward)
+        rew_tracking = 3.5 * rew_tracking_goal_vel + 1.0 * rew_tracking_yaw
+
+        #print("t", rew_tracking)
+        #print("p", rew_picking_throwing)
+
+        return rew_picking_throwing + rew_tracking
+

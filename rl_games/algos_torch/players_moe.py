@@ -80,7 +80,7 @@ class PpoPlayerContinuousMoE(BasePlayer):
         network = builder.load(params)
         # TODO: expert cfg에 추가
         actions_num = 12 # params['experts']['env_info']['actions_num']
-        obs_shape = (52, ) #self.obs_shape
+        obs_shape = (49, ) #self.obs_shape
         num_agents = 1 # params['experts']['env_info']['agent']
         value_size = 1 # params['experts']['env_info']['value_size']
         normalize_value = params['config']['normalize_value']

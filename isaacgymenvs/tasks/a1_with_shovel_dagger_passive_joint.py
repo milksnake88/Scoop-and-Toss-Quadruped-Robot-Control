@@ -44,7 +44,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         # default joint positions
         self.named_default_joint_angles = self.cfg["env"]["defaultJointAngles"]
 
-        self.cfg["env"]["numObservations"] = 52
+        self.cfg["env"]["numObservations"] = 49
         self.cfg["env"]["numActions"] = 12
 
         # box init state
@@ -504,6 +504,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         # states from imu(quaternion, gyroscope, accelerometer)
         # 1. quaternion
         rot_matrix = self.quaternion_to_6D_matrix(base_quat)
+        projected_gravity = quat_rotate_inverse(base_quat, self.gravity_vec)
         # 2. gyroscope
         base_ang_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 10:13])
         # 3. accelerometer
@@ -537,7 +538,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
 
         self.obs_buf[:] = torch.cat((pos_of_prop_wrt_a1_base,
                                      shovel_to_prop_dis,
-                                     rot_matrix,
+                                     projected_gravity,
                                      base_ang_vel,
                                      accelerometer,
                                      self.dof_pos_new,

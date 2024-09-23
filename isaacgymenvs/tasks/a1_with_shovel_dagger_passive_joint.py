@@ -572,6 +572,17 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         random_a1_init_state[:, 3:7] = torch.tensor([0., 0., torch.sin(theta / 2), torch.cos(theta / 2)])
         self.root_states[self.a1_indices[env_ids]] = random_a1_init_state
 
+        prop_position_offset_x = torch_rand_float(-0.7, 1.4, (len(env_ids), 1), device=self.device)
+        prop_position_offset_y = torch_rand_float(-1.12, 1.12, (len(env_ids), 1), device=self.device)
+        prop_position_offset_x = torch_rand_float(13.0, 13.0, (len(env_ids), 1), device=self.device)
+        prop_position_offset_y = torch_rand_float(-5.0, -5.0, (len(env_ids), 1), device=self.device)
+        random_prop_init_pos = self.prop_init_state[env_ids].clone()
+        random_prop_init_pos[:, 0] += prop_position_offset_x.squeeze(-1)
+        random_prop_init_pos[:, 1] += prop_position_offset_y.squeeze(-1)
+        self.root_states[self.prop_indices[env_ids]] = random_prop_init_pos
+
+
+        """
         random_prop_init_pos = self.prop_init_state.clone()
         for env_idx in env_ids:
             if self.randing_cnt[env_idx]:
@@ -586,6 +597,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
             random_prop_init_pos[env_idx, 1] += prop_position_offset_y.item()
             self.root_states[self.prop_indices[env_idx]] = random_prop_init_pos[env_idx]
             #print(self.root_states[self.prop_indices[env_idx]][0:2])
+        """
 
         actor_indices = self.all_actor_indices[env_ids].flatten()
         self.gym.set_actor_root_state_tensor_indexed(self.sim,

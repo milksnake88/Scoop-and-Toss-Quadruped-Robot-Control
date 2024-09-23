@@ -109,6 +109,8 @@ class GatingNetTwoActions(nn.Module):
 
         if self.is_discrete:
             logits = self.logits(out)
+            # NaN, Inf, -Inf 값을 각각 0.0, 1.0, -1.0으로 대체
+            logits = torch.nan_to_num(logits, nan=0.0, posinf=1.0, neginf=-1.0)
             return logits, value, states
         if self.is_multi_discrete:
             logits = [logit(out) for logit in self.logits]

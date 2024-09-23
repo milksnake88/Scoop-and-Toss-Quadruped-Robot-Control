@@ -158,6 +158,9 @@ class A1MoEPassiveJointTwoActions(VecTask):
         self.bed_position_local = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.bed_position_local[:, 2] = 0.06 # bed joint position in base frame
 
+        self.closest_prop_positions_before = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        self.min_distance_indices_before = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
+
     def create_sim(self):
         self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
@@ -409,6 +412,18 @@ class A1MoEPassiveJointTwoActions(VecTask):
         distances[self.landing.bool()] = float('inf')
         min_distance_indices = torch.argmin(distances, dim=1)
         closest_prop_positions = prop_root_pos[torch.arange(self.num_envs), min_distance_indices]
+        temp = prop_root_pos[torch.arange(self.num_envs), self.min_distance_indices_before]
+
+        keep_closest_prop = torch.norm(temp - self.closest_prop_positions_before, dim=-1) < 0.1
+
+        for env_idx in range(self.num_envs):
+            if keep_closest_prop[env_idx]:
+                min_distance_indices[env_idx] = self.min_distance_indices_before[env_idx]
+                closest_prop_positions[env_idx] = self.closest_prop_positions_before[env_idx]
+
+        self.min_distance_indices_before = min_distance_indices
+        self.closest_prop_positions_before = closest_prop_positions
+
         return min_distance_indices, closest_prop_positions
 
     def gaussian_kernel(self, x, y, sigma=1.0):

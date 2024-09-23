@@ -107,6 +107,12 @@ class GatingNetTwoActions(nn.Module):
         if self.central_value:
             return value, states
 
+        if self.is_discrete:
+            logits = self.logits(out)
+            return logits, value, states
+        if self.is_multi_discrete:
+            logits = [logit(out) for logit in self.logits]
+            return logits, value, states
         if self.is_continuous:
             mu = self.mu_act(self.mu(out))
             if self.fixed_sigma:

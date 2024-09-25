@@ -117,7 +117,7 @@ class MetaControllerHelperNet(nn.Module):
             categorical = CategoricalMasked(logits=logits, masks=action_masks)
             action = categorical.sample().long()
 
-        weigths1 = action
+        weigths1 = action.unsqueeze(-1)
         weigths2 = 1 - weigths1
 
         selected_action = weigths1*e1_action + weigths2*e2_action
@@ -132,6 +132,7 @@ class MetaControllerHelperNet(nn.Module):
                 sigma = self.sigma_act(self.sigma)
             else:
                 sigma = self.sigma_act(self.sigma(helper_out))
+            states = selected_action
             return mu, mu*0 + sigma, value, states
 
     def _build_sequential_mlp(self, input_size, units, activation, dense_func, d2rl, norm_only_first_layer=False, norm_func_name = None):

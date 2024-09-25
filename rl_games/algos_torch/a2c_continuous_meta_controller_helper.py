@@ -226,8 +226,8 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
         # if len(self.obs.size()) > len(self.obs_shape):
         #    self.has_batch_dimension = True
         processed_obs = self._preproc_obs(obs['obs'])
-        closest_prop_pos = processed_obs[:, 0:3]
-        proprioception = processed_obs[:, 3:] #TODO: cfg로 받기(map size 달라질수도 있음)
+        closest_prop_pos = processed_obs[:, 12:15]
+        proprioception = processed_obs[:,15:] #TODO: cfg로 받기(map size 달라질수도 있음)
         num_envs = proprioception.shape[0]
         if shovel_to_prop_dis.shape[0] != num_envs:
             shovel_to_prop_dis = shovel_to_prop_dis.repeat(num_envs, 1)
@@ -325,7 +325,7 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
                 res_dict = self.get_masked_action_values(self.obs, masks)
             else:
                 res_dict = self.get_action_values(self.obs, e1_action, e2_action)
-            self.experience_buffer.update_data('obses', n, self.obs['obs'])
+
             self.experience_buffer.update_data('dones', n, self.dones)
 
             for k in update_list:
@@ -333,29 +333,20 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
             if self.has_central_value:
                 self.experience_buffer.update_data('states', n, self.obs['states'])
 
-            actions = res_dict['actions'] # torch.Size([num_envs, 2])
-
-            # Split action into weights and position
-            weights1 = actions[:, 0].unsqueeze(-1)
-            weights2 = actions[:, 1].unsqueeze(-1)
-
-            e1_action = self.get_expert_action(self.e1_model, self.obs, self.shovel_to_prop_dis)
-            e2_action = self.get_expert_action(self.e2_model, self.obs, self.shovel_to_prop_dis)
-
-            mixtured_action = weights1*e1_action + weights2*e2_action
-
             step_time_start = time.time()
-            self.obs, rewards, self.dones, infos = self.env_step(mixtured_action)
+            self.obs, rewards, self.dones, infos = self.env_step(res_dict['actions'])
             step_time_end = time.time()
 
             step_time += (step_time_end - step_time_start)
 
             self.shovel_to_prop_dis = infos["shovel_to_prop_dis"]
-
             shaped_rewards = self.rewards_shaper(rewards)
             if self.value_bootstrap and 'time_outs' in infos:
                 shaped_rewards += self.gamma * res_dict['values'] * self.cast_obs(infos['time_outs']).unsqueeze(1).float()
 
+            expert_action = res_dict['rnn_states']
+            self.obs['obs'][:, :12] = expert_action
+            self.experience_buffer.update_data('obses', n, self.obs['obs'])
             self.experience_buffer.update_data('rewards', n, shaped_rewards)
 
             self.current_rewards += rewards

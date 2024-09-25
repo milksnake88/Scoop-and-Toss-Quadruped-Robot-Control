@@ -52,6 +52,20 @@ class MetaControllerHelperNet(nn.Module):
         if self.separate:
             self.controller_critic_mlp = self._build_sequential_mlp(**controller_mlp_args)
 
+        helper_mlp_args = {
+          'input_size' : helper_mlp_input_shape,
+          'units' : self.helper_units,
+          'activation' : self.activation,
+          'norm_func_name' : self.normalization,
+          'dense_func' : torch.nn.Linear,
+          'd2rl' : self.is_d2rl,
+          'norm_only_first_layer' : self.norm_only_first_layer
+        }
+
+        self.helper_actor_mlp = self._build_sequential_mlp(**helper_mlp_args)
+        print("helper_actor_mlp \n", self.helper_actor_mlp)
+        if self.separate:
+            self.helper_critic_mlp = self._build_sequential_mlp(**helper_mlp_args)
 
         self.value = torch.nn.Linear(helper_out_size, self.value_size)
         self.value_act = self.activations_factory.create(self.value_activation)

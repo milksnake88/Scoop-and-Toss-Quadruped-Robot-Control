@@ -311,6 +311,33 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
                 res_dict['values'] = value
         return res_dict
 
+    def get_values(self, obs, e1_action, e2_action):
+        with torch.no_grad():
+            if self.has_central_value:
+                states = obs['states']
+                self.central_value_net.eval()
+                input_dict = {
+                    'is_train': False,
+                    'states' : states,
+                    'actions' : None,
+                    'is_done': self.dones,
+                }
+                value = self.get_central_value(input_dict)
+            else:
+                self.model.eval()
+                processed_obs = self._preproc_obs(obs['obs'])
+                input_dict = {
+                    'is_train': False,
+                    'prev_actions': None,
+                    'obs' : processed_obs,
+                    'rnn_states' : self.rnn_states,
+                    'e1_action' : e1_action,
+                    'e2_action' : e2_action,
+                }
+                result = self.model(input_dict)
+                value = result['values']
+            return value
+
     def play_steps(self):
         update_list = self.update_list
 
@@ -333,8 +360,12 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
             if self.has_central_value:
                 self.experience_buffer.update_data('states', n, self.obs['states'])
 
+            weight1 = res_dict['rnn_states']
+            action = res_dict['actions']
+
+            scaled_action = weight1 * e1_action + (1-weight1)*e2_action + action
             step_time_start = time.time()
-            self.obs, rewards, self.dones, infos = self.env_step(res_dict['actions'])
+            self.obs, rewards, self.dones, infos = self.env_step(scaled_action)
             step_time_end = time.time()
 
             step_time += (step_time_end - step_time_start)
@@ -366,7 +397,7 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
             self.current_shaped_rewards = self.current_shaped_rewards * not_dones.unsqueeze(1)
             self.current_lengths = self.current_lengths * not_dones
 
-        last_values = self.get_values(self.obs)
+        last_values = self.get_values(self.obs, e1_action, e2_action)
 
         fdones = self.dones.float()
         mb_fdones = self.experience_buffer.tensor_dict['dones'].float()

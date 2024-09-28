@@ -123,18 +123,11 @@ class MetaControllerHelperNet(nn.Module):
         controller_out = self.controller_actor_mlp(controller_out) #torch.Size([num_envs, 64(mlp output size)]
         logits = self.logits(controller_out)
         logits = torch.nan_to_num(logits, nan=0.0, posinf=1.0, neginf=-1.0)
-        if is_train:
-            categorical = CategoricalMasked(logits=logits, masks=action_masks)
-            prev_neglogp = -categorical.log_prob(prev_actions)
-            entropy = categorical.entropy()
-        else:
-            categorical = CategoricalMasked(logits=logits, masks=action_masks)
-            action = categorical.sample().long()
+        categorical = CategoricalMasked(logits=logits, masks=action_masks)
+        action = categorical.sample().long()
 
         weigths1 = action.unsqueeze(-1)
         weigths2 = 1 - weigths1
-
-        selected_action = weigths1*e1_action + weigths2*e2_action
 
         helper_out = obs
         helper_out = self.helper_actor_mlp(helper_out)
@@ -146,7 +139,7 @@ class MetaControllerHelperNet(nn.Module):
                 sigma = self.sigma_act(self.sigma)
             else:
                 sigma = self.sigma_act(self.sigma(helper_out))
-            states = selected_action
+            states = weigths1
             return mu, mu*0 + sigma, value, states
 
     def _build_sequential_mlp(self, input_size, units, activation, dense_func, d2rl, norm_only_first_layer=False, norm_func_name = None):

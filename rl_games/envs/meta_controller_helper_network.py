@@ -27,7 +27,7 @@ class MetaControllerHelperNet(nn.Module):
         self.helper_actor_mlp = nn.Sequential()
         self.helper_critic_mlp = nn.Sequential()
 
-        controller_mlp_input_shape = input_shape[0]
+        controller_mlp_input_shape = 48
         helper_mlp_input_shape = input_shape[0]
 
         if len(self.controller_units) == 0:
@@ -119,8 +119,8 @@ class MetaControllerHelperNet(nn.Module):
         action_masks = obs_dict.get('action_masks', None)
         prev_actions = obs_dict.get('prev_actions', None)
 
-        controller_out = obs
-        controller_out = self.controller_actor_mlp(controller_out) #torch.Size([num_envs, 64(mlp output size)]
+        controller_obs = obs[:, 12:]
+        controller_out = self.controller_actor_mlp(controller_obs)
         logits = self.logits(controller_out)
         logits = torch.nan_to_num(logits, nan=0.0, posinf=1.0, neginf=-1.0)
         categorical = CategoricalMasked(logits=logits, masks=action_masks)

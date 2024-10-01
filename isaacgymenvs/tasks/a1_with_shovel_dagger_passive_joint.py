@@ -49,9 +49,6 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
 
         # box init state
         box_pos = self.cfg["env"]["props"]["pos"]
-        #box_pos = [0.24, 0.13, 0.08] # pi_throwing
-        #box_pos = [0.31, 0.13, 0.03] # pi_throwing_gaze
-        #box_pos = [0.26, 0.13, 0.08] #test
         box_rot = self.cfg["env"]["props"]["rot"]
         box_v_lin = self.cfg["env"]["props"]["vLinear"]
         box_v_ang = self.cfg["env"]["props"]["vAngular"]
@@ -152,7 +149,6 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.base_up_vector[:, 2] = 1. # bed joint position in base frame
         self.shovel_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel_bottom")
         self.rigid_body_properties = self.gym.get_actor_rigid_shape_properties(self.envs[0], self.a1_handles[0])
-        print("sssssss", self.rigid_body_properties[7].friction)
 
         self.randing_cnt = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
         self.episode_cnt = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
@@ -172,7 +168,6 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         # If randomizing, apply once immediately on startup before the fist sim step
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
-
 
     def render(self, mode="rgb_array"):
         """Draw the frame to the viewer, and check for keyboard events."""
@@ -238,12 +233,10 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         plane_params.dynamic_friction = self.plane_dynamic_friction
         self.gym.add_ground(self.sim, plane_params)
 
-
     def _create_envs(self, num_envs, spacing, num_per_row):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../assets')
 
         # load a1 asset
-        #a1_asset_file = "urdf/a1_with_shovel_description/urdf/a1_with_shovel_passive_joint_for_picking.urdf"
         a1_asset_file = "urdf/a1_with_shovel_description/urdf/a1_with_shovel_passive_joint_black.urdf"
         a1_asset_options = gymapi.AssetOptions()
         a1_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
@@ -253,7 +246,6 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         a1_asset_options.thickness = 0.003 #Thickness of the collision shapes. Sets how far objects should come to rest from the surface of this body
         a1_asset_options.disable_gravity = False
         a1_asset_options.vhacd_enabled= True
-        #a1_asset_options.collapse_fixed_joints = True
         #a1_asset_options.use_mesh_materials = True
 
         a1_asset = self.gym.load_asset(self.sim, asset_root, a1_asset_file, a1_asset_options)
@@ -277,15 +269,6 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         a1_dof_props['damping'][a1_FL_shovel_joint_index] = 0.0001
 
         body_dict = self.gym.get_asset_rigid_body_dict(a1_asset)
-        print(body_dict)
-        """
-        {'base': 0, 'trunk': 1,
-        'FL_hip': 2, 'FL_thigh_shoulder': 3, 'FL_thigh': 4, 'FL_calf': 5, 'FL_foot': 6, 'FL_shovel': 7,
-        'FR_hip': 8, 'FR_thigh_shoulder': 9, 'FR_thigh': 10, 'FR_calf': 11, 'FR_foot': 12,
-        'RL_hip': 13, 'RL_thigh_shoulder': 14, 'RL_thigh': 15, 'RL_calf': 16, 'RL_foot': 17,
-        'RR_hip': 18, 'RR_thigh_shoulder': 19, 'RR_thigh': 20, 'RR_calf': 21, 'RR_foot': 22,
-        'bed': 23, 'bed_bottom': 24, 'imu_link': 25}
-        """
         a1_body_shape_indices = self.gym.get_asset_rigid_body_shape_indices(a1_asset)
         a1_body_shape_props = self.gym.get_asset_rigid_shape_properties(a1_asset)
 
@@ -296,14 +279,12 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
                 a1_body_shape_props[a1_body_shape_indices[thigh_idx].start + i].filter = 1
 
         FL_shovel_index = body_dict["FL_shovel"]
-        print("aaaaaaaaaa", FL_shovel_index)
         a1_body_shape_props[FL_shovel_index].friction = 0.5
 
         hip_names = [s for s in self.dof_names if "hip" in s]
         self.hip_joint_indices = torch.zeros(len(hip_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(hip_names)):
             self.hip_joint_indices[i] = self.gym.find_asset_dof_index(a1_asset, hip_names[i])
-        #print(self.hip_joint_indices)
 
         # create a1 asset
         box_size = 0.04
@@ -386,47 +367,6 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
     def compute_reward(self, actions):
         pass
 
-
-    def check_termination(self):
-         # reset agents
-        reset = torch.norm(self.contact_forces[:, self.trunk_index, :], dim=1) > 1.
-        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
-        reset = reset | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
-        time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
-        reset = reset | time_out
-
-        self.reset_buf[:] = reset
-
-
-
-    def quaternion_to_rotation_matrix(self, base_quat, base_pos): # q = self.root_states[:, 3:7]
-        # Extract the values from root_states
-        x, y, z, w = torch.unbind(base_quat, -1)
-        two = 2.0 / (base_quat*base_quat).sum(-1)
-        matrix = torch.stack(
-            (
-                1-two*(y*y+z*z),
-                two*(x*y-z*w),
-                two*(x*z+y*w),
-                two*(x*y+z*w),
-                1-two*(x*x+z*z),
-                two*(y*z-x*w),
-                two*(x*z-y*w),
-                two*(y*z+x*w),
-                1-two*(x*x+y*y),
-            ),
-            -1,
-        )
-
-        rotation_matrix = matrix.reshape(base_quat.shape[:-1]+(3,3))
-
-        affine_matrix = torch.zeros((base_quat.shape[0], 4, 4), dtype=torch.float, device=self.device, requires_grad=False)
-        affine_matrix[:, :3, :3] = rotation_matrix
-        affine_matrix[:, :3, 3] = base_pos
-        affine_matrix[:, 3, 3] = 1
-
-        return affine_matrix
-
     def quaternion_to_6D_matrix(self, base_quat): # q = self.root_states[:, 3:7]
         # Extract the values from root_states
         x, y, z, w = torch.unbind(base_quat, -1)
@@ -482,28 +422,10 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.gym.clear_lines(self.viewer)
         self.gym.add_lines(self.viewer, self.envs[0], num_lines, line_vertices, line_colors)
 
-    def transform_position(self, a1_pos, a1_ori, prop_pos):
-        #print("a1_pos", a1_pos)
-        #print("a1_ori", a1_ori)
-        #print("prop_pos", prop_pos)
-        rotation_matrix = self.quaternion_to_rotation_matrix(a1_ori, a1_pos)
-        rotation_matrix_inv = torch.linalg.inv(rotation_matrix)
-        pos = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False)
-        relative_pos = prop_pos - a1_pos
-        #print(relative_pos)
-        pos[:, :3] = relative_pos
-        pos[:, 3] = 1
-
-        prop_pos_in_robot_base = torch.matmul(rotation_matrix_inv, pos.unsqueeze(-1)).squeeze(-1)
-
-        return prop_pos_in_robot_base
-
     def compute_observations(self):
-        base_pos = self.a1_root_states[:, 0:3]
         base_quat = self.a1_root_states[:, 3:7] # quaternion
         # states from imu(quaternion, gyroscope, accelerometer)
         # 1. quaternion
-        rot_matrix = self.quaternion_to_6D_matrix(base_quat)
         projected_gravity = quat_rotate_inverse(base_quat, self.gravity_vec)
         # 2. gyroscope
         base_ang_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 10:13])
@@ -513,25 +435,11 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.base_lin_vel_before = base_lin_vel
 
         prop_root_pos = self.prop_root_states[:, 0:3]
-        inverse_quat = quat_inverse(base_quat)
-        temp = prop_root_pos-base_pos
-        tt = quat_rotate(inverse_quat, -base_pos)
-        #pos_of_prop_wrt_a1_base = transform_from_rotation_translation(inverse_quat, tt)
-        #pos_of_prop_wrt_a1_base = self.transform_position(base_pos, base_quat, prop_root_pos)
-        #pos_of_prop_wrt_a1_base = quat_rotate_inverse(base_quat, prop_root_pos-base_pos)
-        #print("next")
-        #pos_of_prop_wrt_a1_base = quat_rotate_inverse(base_quat, prop_root_pos-base_pos)
         pos_of_prop_wrt_a1_base = self.get_transformed_position(point_global=prop_root_pos)
 
         # distance between shovel to prop
         shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
         shovel_to_prop_dis = torch.norm(prop_root_pos - shovel_bottom_pos, dim=1, keepdim=True)
-        #print("shovel pos", shovel_bottom_pos)
-
-
-        #print("shovel_to_prop dis", shovel_to_prop_dis)
-        #print("pos_of", pos_of_prop_wrt_a1_base)
-        #self.draw_lines(shovel_bottom_pos[0], prop_root_pos[0])
 
         self.dof_pos_new = torch.cat((self.dof_pos[:, :self.FL_shovel_joint_index], self.dof_pos[:, self.FL_shovel_joint_index+1:]), dim=1)
         self.dof_vel_new = torch.cat((self.dof_vel[:, :self.FL_shovel_joint_index], self.dof_vel[:, self.FL_shovel_joint_index+1:]), dim=1)
@@ -574,13 +482,10 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
 
         prop_position_offset_x = torch_rand_float(-0.7, 1.4, (len(env_ids), 1), device=self.device)
         prop_position_offset_y = torch_rand_float(-1.12, 1.12, (len(env_ids), 1), device=self.device)
-        prop_position_offset_x = torch_rand_float(13.0, 13.0, (len(env_ids), 1), device=self.device)
-        prop_position_offset_y = torch_rand_float(-5.0, -5.0, (len(env_ids), 1), device=self.device)
         random_prop_init_pos = self.prop_init_state[env_ids].clone()
         random_prop_init_pos[:, 0] += prop_position_offset_x.squeeze(-1)
         random_prop_init_pos[:, 1] += prop_position_offset_y.squeeze(-1)
         self.root_states[self.prop_indices[env_ids]] = random_prop_init_pos
-
 
         """
         random_prop_init_pos = self.prop_init_state.clone()

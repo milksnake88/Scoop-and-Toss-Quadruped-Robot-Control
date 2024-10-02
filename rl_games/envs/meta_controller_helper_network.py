@@ -11,6 +11,37 @@ import torch.nn.functional as F
 def _create_initializer(func, **kwargs):
     return lambda v : func(v, **kwargs)
 
+"""
+# continous
+class MetaControllerNetwork(nn.Module):
+    def __init__(self):
+        super(MetaControllerNetwork, self).__init__()
+        self.fc1 = nn.Linear(48, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.action_mean = nn.Linear(64, 2)
+        self.log_std = nn.Parameter(torch.zeros(2))
+
+    def forward(self, state):
+        x = F.elu(self.fc1(state))
+        x = F.elu(self.fc2(x))
+        action_mean = self.action_mean(x)
+        return action_mean, self.log_std
+"""
+
+# discrete
+class MetaControllerNetwork(nn.Module):
+    def __init__(self):
+        super(MetaControllerNetwork, self).__init__()
+        self.fc1 = nn.Linear(48, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.logits = nn.Linear(64, 2)  # 2개의 이산적인 출력 (0 또는 1을 위한 logit)
+
+    def forward(self, state):
+        x = F.elu(self.fc1(state))
+        x = F.elu(self.fc2(x))
+        logits = self.logits(x)  # 2개의 logit 출력
+        return logits
+
 class MetaControllerHelperNet(nn.Module):
     def __init__(self, params, **kwargs):
         nn.Module.__init__(self)
@@ -22,35 +53,15 @@ class MetaControllerHelperNet(nn.Module):
         self.num_seqs = num_seqs = kwargs.pop('num_seqs', 1)
 
         self.load(params)
-        self.controller_actor_mlp = nn.Sequential()
-        self.controller_critic_mlp = nn.Sequential()
         self.helper_actor_mlp = nn.Sequential()
         self.helper_critic_mlp = nn.Sequential()
 
-        controller_mlp_input_shape = 48
         helper_mlp_input_shape = input_shape[0]
 
         if len(self.controller_units) == 0:
-            controller_out_size = controller_mlp_input_shape
             helper_out_size = helper_mlp_input_shape
         else:
-            controller_out_size = self.controller_units[-1]
             helper_out_size = self.helper_units[-1]
-
-        controller_mlp_args = {
-          'input_size' : controller_mlp_input_shape,
-          'units' : self.controller_units,
-          'activation' : self.activation,
-          'norm_func_name' : self.normalization,
-          'dense_func' : torch.nn.Linear,
-          'd2rl' : self.is_d2rl,
-          'norm_only_first_layer' : self.norm_only_first_layer
-        }
-
-        self.controller_actor_mlp = self._build_sequential_mlp(**controller_mlp_args)
-        print("controller_actor_mlp \n", self.controller_actor_mlp)
-        if self.separate:
-            self.controller_critic_mlp = self._build_sequential_mlp(**controller_mlp_args)
 
         helper_mlp_args = {
           'input_size' : helper_mlp_input_shape,
@@ -69,9 +80,6 @@ class MetaControllerHelperNet(nn.Module):
 
         self.value = torch.nn.Linear(helper_out_size, self.value_size)
         self.value_act = self.activations_factory.create(self.value_activation)
-
-        # controller: discrete space
-        self.logits = torch.nn.Linear(controller_out_size, 2)
 
         # helper: continuous space
         self.mu = torch.nn.Linear(helper_out_size, actions_num)
@@ -105,6 +113,8 @@ class MetaControllerHelperNet(nn.Module):
             else:
                 sigma_init(self.sigma.weight)
 
+        self.controller_net = MetaControllerNetwork()
+
     def is_rnn(self):
         return False
 
@@ -119,15 +129,22 @@ class MetaControllerHelperNet(nn.Module):
         action_masks = obs_dict.get('action_masks', None)
         prev_actions = obs_dict.get('prev_actions', None)
 
-        controller_obs = obs[:, 12:]
-        controller_out = self.controller_actor_mlp(controller_obs)
-        logits = self.logits(controller_out)
-        logits = torch.nan_to_num(logits, nan=0.0, posinf=1.0, neginf=-1.0)
-        categorical = CategoricalMasked(logits=logits, masks=action_masks)
-        action = categorical.sample().long()
+        controller_out = obs
 
-        weigths1 = action.unsqueeze(-1)
-        weigths2 = 1 - weigths1
+        # dicrete
+        controller_out = self.controller_net(controller_out)
+        logits = torch.nan_to_num(controller_out, nan=0.0, posinf=1.0, neginf=-1.0)
+        categorical = CategoricalMasked(logits=logits, masks=action_masks)
+        weights1 = categorical.sample().long().unsqueeze(-1)
+        states = weights1
+
+        """
+        # continous
+        action_mean, log_std = self.controller_net(controller_out)
+        action_dist = torch.distributions.Normal(action_mean, torch.exp(log_std))
+        weights = action_dist.sample().long()
+        states = weights
+        """
 
         helper_out = obs
         helper_out = self.helper_actor_mlp(helper_out)
@@ -139,7 +156,6 @@ class MetaControllerHelperNet(nn.Module):
                 sigma = self.sigma_act(self.sigma)
             else:
                 sigma = self.sigma_act(self.sigma(helper_out))
-            states = weigths1
             return mu, mu*0 + sigma, value, states
 
     def _build_sequential_mlp(self, input_size, units, activation, dense_func, d2rl, norm_only_first_layer=False, norm_func_name = None):

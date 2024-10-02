@@ -360,10 +360,20 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
             if self.has_central_value:
                 self.experience_buffer.update_data('states', n, self.obs['states'])
 
+            # discrete
             weight1 = res_dict['rnn_states']
-            action = res_dict['actions']
+            expert_action = weight1 * e1_action + (1-weight1)*e2_action
 
-            scaled_action = weight1 * e1_action + (1-weight1)*e2_action + action
+            """
+            # continuous
+            weights = res_dict['rnn_states']
+            expert_action = weights[:, 0].unsqueeze(-1) * self.e1_action + (1-weights[:, 1]).unsqueeze(-1)*self.e2_action
+            """
+
+            alpha = 1
+            delta_action = res_dict['actions']
+            scaled_action = expert_action + alpha * torch.tanh(delta_action)
+
             step_time_start = time.time()
             self.obs, rewards, self.dones, infos = self.env_step(scaled_action)
             step_time_end = time.time()

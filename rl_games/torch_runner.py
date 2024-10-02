@@ -18,6 +18,7 @@ from rl_games.algos_torch import players
 from rl_games.algos_torch import players_moe
 from rl_games.algos_torch import players_moe_two_actions
 from rl_games.algos_torch import players_discrete_moe_two_actions
+from rl_games.algos_torch import players_continuous_meta_controller_helper
 from rl_games.common.algo_observer import DefaultAlgoObserver
 from rl_games.algos_torch import sac_agent
 
@@ -56,6 +57,7 @@ class Runner:
         self.player_factory.register_builder('a2c_continuous_moe_two_actions', lambda **kwargs : players_moe_two_actions.PpoPlayerContinuousMoETwoActions(**kwargs))
         self.player_factory.register_builder('a2c_discrete', lambda **kwargs : players.PpoPlayerDiscrete(**kwargs))
         self.player_factory.register_builder('a2c_discrete_moe_two_actions', lambda **kwargs : players_discrete_moe_two_actions.PpoPlayerDiscreteMoETwoActions(**kwargs))
+        self.player_factory.register_builder('a2c_continuous_meta_controller_helper', lambda **kwargs : players_continuous_meta_controller_helper.PpoPlayerContinuousMetaControllerHelper(**kwargs))
         self.player_factory.register_builder('sac', lambda **kwargs : players.SACPlayer(**kwargs))
         #self.player_factory.register_builder('dqn', lambda **kwargs : players.DQNPlayer(**kwargs))
 

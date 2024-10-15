@@ -78,6 +78,15 @@ class MetaControllerHelperNet(nn.Module):
         if self.separate:
             self.helper_critic_mlp = self._build_sequential_mlp(**helper_mlp_args)
 
+        """
+        # helper_actor_mlp에 가중치 초기화 적용
+        for m in self.helper_actor_mlp.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, mean=0.0, std=0.02)  # 원하는 mean과 std로 초기화
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)  # bias를 0으로 초기화
+        """
+
         self.value = torch.nn.Linear(helper_out_size, self.value_size)
         self.value_act = self.activations_factory.create(self.value_activation)
 

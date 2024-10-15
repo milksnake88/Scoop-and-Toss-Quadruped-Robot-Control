@@ -226,8 +226,8 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
         # if len(self.obs.size()) > len(self.obs_shape):
         #    self.has_batch_dimension = True
         processed_obs = self._preproc_obs(obs['obs'])
-        closest_prop_pos = processed_obs[:, 12:15]
-        proprioception = processed_obs[:,15:] #TODO: cfg로 받기(map size 달라질수도 있음)
+        closest_prop_pos = processed_obs[:, 0:3]
+        proprioception = processed_obs[:,3:] #TODO: cfg로 받기(map size 달라질수도 있음)
         num_envs = proprioception.shape[0]
         if shovel_to_prop_dis.shape[0] != num_envs:
             shovel_to_prop_dis = shovel_to_prop_dis.repeat(num_envs, 1)
@@ -386,7 +386,6 @@ class A2CContinuousMetaControllerHelperAgent(a2c_common.ContinuousA2CBase):
                 shaped_rewards += self.gamma * res_dict['values'] * self.cast_obs(infos['time_outs']).unsqueeze(1).float()
 
             expert_action = res_dict['rnn_states']
-            self.obs['obs'][:, :12] = expert_action
             self.experience_buffer.update_data('obses', n, self.obs['obs'])
             self.experience_buffer.update_data('rewards', n, shaped_rewards)
 

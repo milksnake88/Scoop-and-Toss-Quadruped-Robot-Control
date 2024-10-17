@@ -65,6 +65,7 @@ from .a1_cross_picking import A1CrossPicking
 from .a1_run import A1Run
 from .a1_test import A1Test
 from .a1_meta_controller_helper import A1MetaControllerHelper
+from .a1_helper import A1Helper
 
 # Mappings from strings to environments
 isaacgym_task_map = {
@@ -106,4 +107,5 @@ isaacgym_task_map = {
     "A1Run": A1Run,
     "A1Test": A1Test,
     "A1MetaControllerHelper": A1MetaControllerHelper,
+    "A1Helper": A1Helper,
 }

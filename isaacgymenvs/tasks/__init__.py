@@ -60,8 +60,6 @@ from .a1_walking_and_putting_in import A1Locomotion
 from .a1_approaching import A1Approaching
 from .a1_throwing_with_camera import A1ThrowingWithCamera
 from .a1_approaching_extreme_parkour_version import A1ApproachingExtremeParkourVersion
-from .a1_picking import A1Picking
-from .a1_cross_picking import A1CrossPicking
 from .a1_run import A1Run
 from .a1_test import A1Test
 from .a1_meta_controller_helper import A1MetaControllerHelper
@@ -102,8 +100,6 @@ isaacgym_task_map = {
     "A1Approaching": A1Approaching,
     "A1ThrowingWithCamera": A1ThrowingWithCamera,
     "A1ApproachingExtremeParkourVersion": A1ApproachingExtremeParkourVersion,
-    "A1Picking": A1Picking,
-    "A1CrossPicking": A1CrossPicking,
     "A1Run": A1Run,
     "A1Test": A1Test,
     "A1MetaControllerHelper": A1MetaControllerHelper,

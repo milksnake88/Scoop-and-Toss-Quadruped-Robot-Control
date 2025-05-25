@@ -5,7 +5,7 @@ physics_engine: ${..physics_engine}
 
 env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
-  envSpacing: 5.  # [m]
+  envSpacing: 7.  # [m]
 
   clipObservations: 5.0
   clipActions: 1.0
@@ -17,7 +17,6 @@ env:
 
   baseInitState:
     pos: [0.0, 0.0, 0.35] # x,y,z [m]
-    #pos: [0.0, 0.0, 0.4]
     rot: [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
     vLinear: [0.0, 0.0, 0.0]  # x,y,z [m/s]
     vAngular: [0.0, 0.0, 0.0]  # x,y,z [rad/s]
@@ -65,7 +64,7 @@ env:
     dofVelocityScale: 0.05
 
     # episode length in seconds
-    episodeLength_s: 15
+    episodeLength_s: 40
 
   # viewer cam:
   viewer:

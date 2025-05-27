@@ -4,13 +4,13 @@
     <visual>
       <origin xyz="0.0 0.0 0.0"/>
       <geometry>
-        <mesh filename="ycb/061_foam_brick/textured.obj" scale="0.01 0.01 0.01"/>
+        <mesh filename="ycb/061_foam_brick/textured.obj" scale="0.009 0.009 0.009"/>
       </geometry>
     </visual>
     <collision>
       <origin xyz="0.0 0.0 0.008"/>
       <geometry>
-        <box size="0.049 0.074 0.049"/>
+        <box size="0.049 0.074 0.049" scale="0.9 0.9 0.9"/>
       </geometry>
     </collision>
     <inertial>

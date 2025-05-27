@@ -1,7 +1,4 @@
-# Blender 3.6.1 MTL File: 'shvoel_first_desing.blend1.blend11.blend111.blend'
-# www.blender.org
-
-newmtl ShovelMaterial
+newmtl TrayMaterial
 Kd 0.05 0.8 0.05
 #Kd 0.582 0.678 0.212  # 녹색 (R=0.0, G=1.0, B=0.0)
 #Ka 0.2 0.2 0.2  # 주변광
@@ -9,4 +6,4 @@ Ka 0.3 0.3 0.3
 #Ks 0.4 0.4 0.4  # 반사광
 Ks 0.5 0.5 0.5
 #Ns 40.0         # 광택 정도
-Ns 40.0
+Ns 100.0

@@ -17,18 +17,16 @@ env:
 
   baseInitState:
     pos: [0.0, 0.0, 0.35] # x,y,z [m]
-    #pos: [0.0, 0.0, 0.4]
     rot: [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
     vLinear: [0.0, 0.0, 0.0]  # x,y,z [m/s]
     vAngular: [0.0, 0.0, 0.0]  # x,y,z [rad/s]
 
-    
   props:
     pos: [0.34, 0.13, 0.025]
     rot: [0.0, 0.0, 0.0, 1.]
     vLinear: [0., 0., 0.]
     vAngular: [0., 0., 0.]
-    
+
   control:
     # PD Drive parameters:
     stiffness: 60.0  # [N*m/rad]
@@ -49,10 +47,9 @@ env:
     RL_thigh_joint: 0.67
     RL_calf_joint: -1.2 #-1.2
 
-    RR_hip_joint: -0.17
+    RR_hip_joint: -0.0
     RR_thigh_joint: 0.67
     RR_calf_joint: -1.2 #-1.2
-
 
   urdfAsset:
     collapseFixedJoints: True
@@ -108,7 +105,7 @@ sim:
 task:
   randomize: False
   randomization_params:
-    frequency: 600   # Define how many environment steps between generating new randomizations
+    frequency: 20000   # Define how many environment steps between generating new randomizations
     observations:
       range: [0, .002] # range for the white noise
       operation: "additive"

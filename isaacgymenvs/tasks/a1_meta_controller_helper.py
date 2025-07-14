@@ -12,7 +12,6 @@ from torch.nn.functional import normalize
 
 from isaacgymenvs.tasks.a1_with_shovel import A1WithShovel
 from isaacgymenvs.tasks.a1_with_shovel_passive_joint import A1WithShovelPassiveJoint
-from isaacgymenvs.tasks.a1_with_shovel_dagger_passive_joint import A1WithShovelDaggerPassiveJoint
 from isaacgymenvs.tasks.a1_with_shovel_passive_joint_with_camera import A1WithShovelPassiveJointWithCamera
 from isaacgymenvs.tasks.a1_with_shovel_dagger_fixed_joint import A1WithShovelDaggerFixedJoint
 from isaacgymenvs.tasks.a1_MoE_passive_joint_two_actions import A1MoEPassiveJointTwoActions

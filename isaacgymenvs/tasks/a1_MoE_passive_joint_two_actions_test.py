@@ -22,9 +22,7 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
 
         # reward scales
         self.rew_scales = {}
-        self.rew_scales["alive"] = self.cfg["env"]["learn"]["aliveRewardScale"]
         self.rew_scales["landing"] = self.cfg["env"]["learn"]["landingRewardScale"]
-        self.rew_scales["picking"] = self.cfg["env"]["learn"]["pickingRewardScale"]
         self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
 
         # randomization
@@ -48,9 +46,8 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         self.named_default_joint_angles = self.cfg["env"]["defaultJointAngles"]
 
         # box init state. TODO: add to cfg file
-        #box_pos = [0.24, 0.13, 0.08]
-        box_pos = [0., 0.0, 0.025]
-        #box_pos = [0.5, 0.2, 0.025]
+        #box_pos = [0.34, 0.13, 0.025]
+        box_pos = [0.0, 0.0, 0.025]
         box_rot = [0., 0., 0., 1.]
         box_v_lin = [0., 0., 0.]
         box_v_ang = [0., 0., 0.]
@@ -59,11 +56,9 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         self.num_boxes = 10
 
         self.env_space = self.cfg["env"]["envSpacing"]
-        self.grid_size = self.cfg["env"]["objectMap"]["gridSize"]
-        self.sigma = self.cfg["env"]["objectMap"]["sigma"]
 
-        self.cfg["env"]["numObservations"] = 48
-        self.cfg["env"]["numActions"] = 1
+        self.cfg["env"]["numObservations"] = 49
+        self.cfg["env"]["numActions"] = 1 #4
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
@@ -115,12 +110,11 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         self.all_actor_indices = torch.arange(self.actors_per_env * self.num_envs, dtype=torch.int32, device=self.device).view(self.num_envs, self.actors_per_env)
 
         self.FL_shovel_joint_index = self.gym.find_actor_dof_handle(self.envs[0], self.a1_handles[0], "FL_shovel_joint")
-
         self.default_dof_pos = torch.zeros_like(self.dof_pos, dtype=torch.float, device=self.device, requires_grad=False)
         for i in range(self.num_dof):
             name = self.dof_names[i]
-            if name=="FL_shovel_joint":
-                continue
+            #if name=="FL_shovel_joint":
+            #    continue
             angle = self.named_default_joint_angles[name]
             self.default_dof_pos[:, i] = angle
 
@@ -150,7 +144,23 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         self.last_actions = torch.zeros(self.num_envs, 12, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel, dtype=torch.float, device=self.device, requires_grad=False)
         self.landing = torch.zeros(self.num_envs, self.num_boxes, dtype=torch.float, device=self.device, requires_grad=False)
+        self.landing_now = torch.zeros(self.num_envs, self.num_boxes, dtype=torch.float, device=self.device, requires_grad=False)
+        self.num_landing = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.total_num_landing = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.picked = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.metric1 = 0.
+        self.metric2 = 0.
+        self.metric3 = 0.
+        self.time = 0.
+        self.cnt = 0.
+        self.success_more_5 = 0.
+        self.success_more_8 = 0.
+
+        self.landing_times = [[] for _ in range(self.num_envs)]
+        self.avg_packing_time = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+
+        # 이전 스텝의 담긴 여부 저장 (물체가 방금 담겼는지 판별하기 위함)
+        self.prev_landing_now = torch.zeros_like(self.landing_now, dtype=torch.float, device=self.device, requires_grad=False)
 
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
 
@@ -160,11 +170,8 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         self.shovel_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel_bottom")
         self.bed_position_local = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.bed_position_local[:, 2] = 0.06 # bed joint position in base frame
-        self.flag = True
-        self.landing_before = torch.zeros_like(self.landing, dtype=torch.float, device=self.device, requires_grad=False)
 
-        self.closest_prop_positions_before = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
-        self.min_distance_indices_before = torch.zeros(self.num_envs, dtype=torch.long, device=self.device, requires_grad=False)
+        #self.prev_min_distance_indices = None  # 처음에는 None으로 시작
 
     def create_sim(self):
         self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
@@ -211,7 +218,7 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
                 delta = now - self.last_frame_time
                 if self.render_fps < 0:
                     # render at control frequency
-                    render_dt = self.dt * self.control_freq_inv * 2.5  # render every control step
+                    render_dt = self.dt * self.control_freq_inv  # render every control step
                 else:
                     render_dt = 1.0 / self.render_fps
 
@@ -251,7 +258,6 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         a1_asset_options.replace_cylinder_with_capsule = False
         a1_asset_options.flip_visual_attachments = True
         a1_asset_options.fix_base_link = self.cfg["env"]["urdfAsset"]["fixBaseLink"]
-        #a1_asset_options.fix_base_link = True
         a1_asset_options.thickness = 0.003 #Thickness of the collision shapes. Sets how far objects should come to rest from the surface of this body
         a1_asset_options.disable_gravity = False
         a1_asset_options.vhacd_enabled= True
@@ -272,8 +278,8 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
             a1_dof_props['driveMode'][i] = 1 #gymapi.DOF_MODE_POS
             a1_dof_props['stiffness'][i] = 60.
             a1_dof_props['damping'][i] = 3.
-        a1_dof_props['stiffness'][a1_FL_shovel_joint_index] = 0.0001
-        a1_dof_props['damping'][a1_FL_shovel_joint_index] = 0.0001
+        #a1_dof_props['stiffness'][a1_FL_shovel_joint_index] = 0.0001
+        #a1_dof_props['damping'][a1_FL_shovel_joint_index] = 0.0001
         body_dict = self.gym.get_asset_rigid_body_dict(a1_asset)
         """
         {'base': 0, 'trunk': 1,
@@ -301,13 +307,17 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         for i in range(len(hip_names)):
             self.hip_joint_indices[i] = self.gym.find_asset_dof_index(a1_asset, hip_names[i])
 
+        banana_asset_file = "urdf/ycb/011_banana/011_banana.urdf"
+        mug_asset_file = "urdf/objects/bucket.urdf"
+        brick_asset_file = "urdf/ycb/061_foam_brick/061_foam_brick.urdf"
         # create box asset
         box_size = 0.04
         box_asset_options = gymapi.AssetOptions()
-        box_asset_options.density = 1500 # kg/m^3
+        box_asset_options.density = 1500 #422 # kg/m^3
         box_asset_options.fix_base_link = False
         box_asset_options.disable_gravity = False
         box_asset = self.gym.create_box(self.sim, box_size, box_size, box_size, box_asset_options)
+        #box_asset = self.gym.load_asset(self.sim, asset_root, mug_asset_file, box_asset_options)
         box_pose = gymapi.Transform()
 
         # create env
@@ -337,7 +347,11 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
             self.a1_init_state.append(self.base_init_state)
 
             for j in range(self.num_boxes):
+                #if j == 0:
+                    #box_pose.p = gymapi.Vec3(*self.box_init_state[:3])
                 box_pose.p = gymapi.Vec3(*self.box_init_state[:3]) + gymapi.Vec3(j*box_size, j*box_size, 0)
+                #else:
+                    #box_pose.p = gymapi.Vec3(0, 0, 0.45) + gymapi.Vec3(j*0.01, j*0.01, 0)
                 box_pose.r = gymapi.Quat(*self.box_init_state[3:7])
                 prop_handle = self.gym.create_actor(env_ptr, box_asset, box_pose, "prop" + str(j), i, 0, 0)
                 self.prop_handles.append(prop_handle)
@@ -357,10 +371,10 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
             self.reset_idx(env_ids)
 
         self.actions = actions.clone().to(self.device)
-        tensor_to_insert = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
-        action = torch.cat((self.actions[:, :self.FL_shovel_joint_index], tensor_to_insert, self.actions[:, self.FL_shovel_joint_index:]), dim=1)
-        targets = 0.5 * action + self.default_dof_pos
-
+        #tensor_to_insert = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        #action = torch.cat((self.actions[:, :self.FL_shovel_joint_index], tensor_to_insert, self.actions[:, self.FL_shovel_joint_index:]), dim=1)
+        targets = 0.5 * self.actions + self.default_dof_pos
+        #targets = 0.5 * action + self.default_dof_pos
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(targets))
 
     def post_physics_step(self):
@@ -378,9 +392,27 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
 
+        self.track_packing_times()
+
+        # 현재 landing_now 값을 prev_landing_now 에 저장 (다음 스텝에서 비교하기 위해)
+        self.prev_landing_now[:] = self.landing_now
+
+    def track_packing_times(self):
+        newly_landed = (self.landing_now == 1) & (self.prev_landing_now == 0) #현재 담긴 물체들
+        current_time = self.time
+
+        for env_idx in range(self.num_envs):
+            for obj_idx in range(self.num_boxes):
+                if newly_landed[env_idx, obj_idx]: # 새롭게 담긴 경우
+                    if len(self.landing_times[env_idx]) == 0:
+                        last_time = 0 # 첫 물체면 에피소드 시작 시간
+                    else:
+                        last_time = self.landing_times[env_idx][-1] # 이전 물체 담긴 시간
+
+                    self.landing_times[env_idx].append(current_time - last_time) # 시간 차이 저장
+
     def compute_reward(self, actions):
         pass
-
 
     def check_termination(self):
          # reset agents
@@ -391,7 +423,6 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         reset = reset | time_out
 
         self.reset_buf[:] = reset
-
 
     def quaternion_to_6D_matrix(self, base_quat): # q = self.root_states[:, 3:7]
         # Extract the values from root_states
@@ -435,32 +466,13 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
                 result[i] = torch.tensor([[transformed_position.x, transformed_position.y, transformed_position.z]],  dtype=torch.float, device=self.device, requires_grad=False)
         return result
 
-
     def compute_observations(self):
-        clostest_prop_index, closest_prop_pos = self.get_closest_prop_position()
+        _, closest_prop_pos = self.get_closest_prop_position()
         pos_of_prop_wrt_a1_base = self.get_transformed_position(point_global=closest_prop_pos)
         # 1. quaternion
         base_quat = self.a1_root_states[:, 3:7] # quaternion
         rot_matrix = self.quaternion_to_6D_matrix(base_quat)
         projected_gravity = quat_rotate_inverse(base_quat, self.gravity_vec)
-        """
-        base_to_prop_dis = torch.norm(closest_prop_pos-self.a1_root_states[:, 0:3], dim=-1, keepdim=True)
-        self.extras["base_to_prop_dis"] = base_to_prop_dis
-
-        landing_cnt = torch.sum(self.landing, dim=-1)
-        landing_before_cnt = torch.sum(self.landing_before, dim=-1)
-        if landing_cnt-landing_before_cnt > 0:
-            self.flag = True
-        self.landing_before = self.landing
-        if base_to_prop_dis < 0.6:
-            if self.flag:
-                self.base_quat_conjugate = quat_conjugate(base_quat)
-                self.flag = False
-            new_base_quat = quat_mul(self.base_quat_conjugate, base_quat)
-            rot_matrix = self.quaternion_to_6D_matrix(new_base_quat)
-            #rot_matrix = torch.tensor([[ 0.9990, -0.0021,  0.0015,  0.9999,  0.0445,  0.0129]], device=self.device)
-        #print(rot_matrix)
-        """
         # 2. gyroscope
         base_ang_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 10:13])
         # 3. accelerometer
@@ -471,27 +483,31 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         self.dof_pos_new = torch.cat((self.dof_pos[:, :self.FL_shovel_joint_index], self.dof_pos[:, self.FL_shovel_joint_index+1:]), dim=1)
         self.dof_vel_new = torch.cat((self.dof_vel[:, :self.FL_shovel_joint_index], self.dof_vel[:, self.FL_shovel_joint_index+1:]), dim=1)
 
-        self.obs_buf[:] = torch.cat((pos_of_prop_wrt_a1_base,
-                                     projected_gravity,
-                                     base_ang_vel,
-                                     accelerometer,
-                                     self.dof_pos_new,
-                                     self.dof_vel_new,
-                                     self.actions,
-                                     ), dim=-1)
-
         # extra obs for experts
         shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
         shovel_to_prop_dis = torch.norm(closest_prop_pos-shovel_bottom_pos, dim=-1, keepdim=True)
         self.extras["shovel_to_prop_dis"] = shovel_to_prop_dis
+        self.extras["projected_gravity"] = projected_gravity
+        self.extras["pos_of_prop_wrt_a1_base"] = pos_of_prop_wrt_a1_base
 
-        base_to_prop_dis = torch.norm(closest_prop_pos-self.a1_root_states[:, 0:3], dim=-1, keepdim=True)
-        self.extras["base_to_prop_dis"] = base_to_prop_dis
+        expert_action = torch.zeros(self.num_envs, 12, dtype=torch.float, device=self.device, requires_grad=False)
+        self.obs_buf[:] = torch.cat((#expert_action,
+                                     pos_of_prop_wrt_a1_base,
+                                     shovel_to_prop_dis,
+                                     projected_gravity,
+                                     base_ang_vel,
+                                     accelerometer,
+                                     self.dof_pos,
+                                     self.dof_vel,
+                                     #self.dof_pos_new,
+                                     #self.dof_vel_new,
+                                     self.actions,
+                                     ), dim=-1)
 
-        self.extras["projected_gravity"] = quat_rotate_inverse(base_quat, self.gravity_vec)
+        # extra obs for experts
+        self.time += self.dt
 
-        self.extras["prop_in_air"] = torch.norm(self.prop_contact_forces[:, clostest_prop_index, :]) == 0
-
+    """
     def get_closest_prop_position(self):
         prop_root_pos = self.prop_root_states[:, :, 0:3]
         base_pos = self.a1_root_states[:, None, 0:3]
@@ -499,49 +515,40 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         distances[self.landing.bool()] = float('inf')
         min_distance_indices = torch.argmin(distances, dim=1)
         closest_prop_positions = prop_root_pos[torch.arange(self.num_envs), min_distance_indices]
-        temp = prop_root_pos[torch.arange(self.num_envs), self.min_distance_indices_before]
-
-        keep_closest_prop = torch.norm(temp - self.closest_prop_positions_before, dim=-1) < 0.05
-        #landing = self.landing < (2/self.dt)
-        landing = self.landing.bool()
-
-        for env_idx in range(self.num_envs):
-            if (keep_closest_prop[env_idx]) & ~landing[env_idx, self.min_distance_indices_before[env_idx]]:
-            #if keep_closest_prop[env_idx]:
-                min_distance_indices[env_idx] = self.min_distance_indices_before[env_idx]
-                closest_prop_positions[env_idx] = temp[env_idx]
-        self.min_distance_indices_before = min_distance_indices
-        self.closest_prop_positions_before = closest_prop_positions
-
-        #print(min_distance_indices)
-
         return min_distance_indices, closest_prop_positions
+    """
 
-    def gaussian_kernel(self, x, y, sigma=1.0):
-        return torch.exp(-torch.sum((x-y)**2, dim=-1) / (2*sigma**2))
+    def get_closest_prop_position(self, threshold=0.1):
+        prop_root_pos = self.prop_root_states[:, :, 0:3]  # 모든 물체 위치
+        base_pos = self.a1_root_states[:, None, 0:3]  # 로봇 위치
 
-    def compute_ditance_map(self):
-        linspace = torch.linspace(-self.env_space*2, self.env_space*2, self.grid_size, device=self.device, requires_grad=False)
-        grid_x, grid_y = torch.meshgrid(linspace, linspace)
-        grid = torch.stack([grid_x, grid_y], dim=-1).reshape(-1, 2)
+        distances = torch.norm(prop_root_pos - base_pos, dim=-1)  # 거리 계산
+        distances[self.landing.bool()] = float('inf')  # 착지한 물체는 무시
 
-        prop_root_pos = self.prop_root_states[:, :, 0:3]
-        prop_root_pos_wrt_a1_base = torch.zeros_like(prop_root_pos, dtype=torch.float, device=self.device, requires_grad=False)
-        for i in range(self.num_boxes):
-            prop_root_pos_wrt_a1_base[:, i, :] = self.get_transformed_position(point_global=prop_root_pos[:, i, :])
+        # 현재 가장 가까운 물체 찾기
+        new_min_distance_indices = torch.argmin(distances, dim=1)
+        new_closest_prop_positions = prop_root_pos[torch.arange(self.num_envs), new_min_distance_indices]
 
-        grid_expanded = grid.unsqueeze(0).unsqueeze(2)
-        pos_xy_expanded = prop_root_pos_wrt_a1_base[:, :, 0:2].unsqueeze(1)
+        # 🛠 이전 프레임의 인덱스가 없으면 초기화
+        if not hasattr(self, "prev_min_distance_indices"):
+            self.prev_min_distance_indices = new_min_distance_indices.clone()  # 첫 실행 시 현재 값을 사용
 
-        distances = self.gaussian_kernel(grid_expanded, pos_xy_expanded, self.sigma) # (num_evns, grid_size*grid_size, num_boxes)
-        object_map = distances.sum(dim=-1).reshape(self.num_envs, self.grid_size*self.grid_size)
+        prev_positions = prop_root_pos[torch.arange(self.num_envs), self.prev_min_distance_indices]
+        prev_distances = torch.norm(prev_positions - base_pos.squeeze(1), dim=-1)
+        new_distances = torch.norm(new_closest_prop_positions - base_pos.squeeze(1), dim=-1)
 
-        # self.visualize_object_map(object_map.reshape(self.num_envs, self.grid_size, self.grid_size), prop_root_pos_wrt_a1_base[:, :, 0:2],  self.prop_root_states[:, :, 0:2])
+        # 히스테리시스 적용: 거리가 비슷하면 기존 물체 유지
+        keep_prev = (new_distances - prev_distances).abs() < threshold
+        new_min_distance_indices[keep_prev] = self.prev_min_distance_indices[keep_prev]
 
-        return object_map
+
+        # 값 업데이트
+        self.prev_min_distance_indices = new_min_distance_indices.clone()
+        closest_prop_positions = prop_root_pos[torch.arange(self.num_envs), new_min_distance_indices]
+        #print(new_min_distance_indices)
+        return new_min_distance_indices, closest_prop_positions
 
     def reset_idx(self, env_ids):
-        self.compute_ditance_map()
         # Randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
@@ -549,7 +556,7 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         positions_offset = torch_rand_float(0.75, 1.25, (len(env_ids), self.num_dof), device=self.device)
         velocities = torch_rand_float(-0.1, 0.1, (len(env_ids), self.num_dof), device=self.device)
 
-        self.dof_pos[env_ids] = self.default_dof_pos[env_ids] * positions_offset
+        self.dof_pos[env_ids] = self.default_dof_pos[env_ids] #* positions_offset
         self.dof_vel[env_ids] = velocities
 
         # reset root state for all actors in selected envs
@@ -558,16 +565,9 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         random_prop_init_pos = self.prop_init_state[env_ids].clone()
 
         for i in range(env_ids.size(0)):
-            random_prop_init_pos[i, :, 0:2] = (torch.rand(self.num_boxes, 2) - 0.5) * torch.tensor([2*self.env_space-0.5, 2*self.env_space-0.5])
-            #random_prop_init_pos[i, :, 0] = torch_rand_float(-0.7, 1.4, (1, self.num_boxes), device=self.device)
-            #random_prop_init_pos[i, :, 1] = torch_rand_float(-1.12, 1.12, (1, self.num_boxes), device=self.device)
-            #random_prop_init_pos[i, :, 1] = (-0.35 - 0.35) * torch.rand(self.num_boxes) + 0.35
-            #random_prop_init_pos[i, 2:, 0:2] = (torch.rand(self.num_boxes-2, 2) - 0.5) * torch.tensor([2*self.env_space-0.5, 2*self.env_space-0.5])
-            #for j in range(self.num_boxes):
-            #    random_prop_init_pos[i, j, 0] += 1 + j
-            #random_prop_init_pos[i, 1, 1] = 1
-            #random_prop_init_pos[i, 2, 1] = -1
-            self.root_states[self.prop_indices[i*self.num_boxes:i*self.num_boxes+self.num_boxes]] = random_prop_init_pos[i]
+            random_prop_init_pos[i, :, 0:2] = (torch.rand(self.num_boxes, 2) - 0.5) * torch.tensor([1*self.env_space, 1*self.env_space])
+            #random_prop_init_pos[i, :, 0:2] = (torch.rand(self.num_boxes, 2) - 0.5) * torch.tensor([2*self.env_space-0.5, 2*self.env_space-0.5])
+            self.root_states[self.prop_indices[env_ids[i]*self.num_boxes:env_ids[i]*self.num_boxes+self.num_boxes]] = random_prop_init_pos[i]
 
         actor_indices = self.all_actor_indices[env_ids].flatten()
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
@@ -583,9 +583,42 @@ class A1MoEPassiveJointTwoActionsTest(VecTask):
         self.reset_buf[env_ids] = 1
         self.base_lin_vel_before[env_ids, :] = torch.tensor([0., 0., 0.], dtype=torch.float, device=self.device, requires_grad=False)
 
+        for env_idx in env_ids:
+            if len(self.landing_times[env_idx]) > 0:
+                self.avg_packing_time[env_idx] = sum(self.landing_times[env_idx]) / len(self.landing_times[env_idx])
+            else:
+                self.avg_packing_time[env_idx] = 0 # 물체를 하나도 담지 못한 경우 제외
+
+        landing_10s = self.landing > 10/self.dt
+        landing = landing_10s & self.landing_now.bool()
+        temp = self.landing_now.sum(dim=-1)
+
+        #1 담은 개수
+        self.metric1 += self.num_landing
+
+        if self.num_landing[0] >= 5:
+            self.success_more_5 += 1
+        if self.num_landing[0] >= 8:
+            self.success_more_8 += 1
+
+        #2 평균 담기 시간
+        self.metric2 += self.avg_packing_time
+
+        #3 누락 물체 개수
+        self.metric3 += (self.num_landing - temp)
+
+        #print("Loaded objects: ", self.metric1)
+        #print("Success rate 5: ", self.success_more_5)
+        #print("Success rate 8: ", self.success_more_8)
+        #print("Time per objects: ", self.metric2)
+
         self.last_actions[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
         self.landing[env_ids] = 0.
         self.picked[env_ids] = 0.
-
-        self.flag = True
+        self.num_landing[env_ids] = 0.
+        self.landing_now[env_ids] = 0.
+        self.time = 0.
+        self.cnt += 1
+        self.landing_times = [[] for _ in range(self.num_envs)]
+        self.prev_landing_now.zero_()

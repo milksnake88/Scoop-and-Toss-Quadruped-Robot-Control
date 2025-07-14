@@ -11,91 +11,110 @@ from isaacgymenvs.tasks.a1_with_shovel import A1WithShovel
 from isaacgymenvs.tasks.a1_with_shovel_passive_joint import A1WithShovelPassiveJoint
 from isaacgymenvs.tasks.a1_without_shovel import A1WithoutShovel
 from isaacgymenvs.tasks.a1_with_shovel_passive_joint_with_camera import A1WithShovelPassiveJointWithCamera
+from isaacgymenvs.tasks.a1_with_shovel_throwing import A1WithShovelThrowing
 
-class A1Approaching(A1WithoutShovel):
+class A1Approaching(A1WithShovelThrowing):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
         self.bed_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "bed_bottom")
-        self.prop_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.prop_handles[0], "prop")
         self.bed_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "bed")
-        self.shovel_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel_bottom")
+        self.shovel_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel")
         self.bed_position_local = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.bed_position_local[:, 2] = 0.06 # bed joint position in base frame
         self.base_up_vector = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
         self.base_up_vector[:, 2] = 1. # bed joint position in base frame
-
-    def get_global_position(self, point_local=None, vector_local=None):
-        base_pos = self.a1_root_states[:, 0:3].squeeze().cpu().numpy()
-        base_ori = self.a1_root_states[:, 3:7].squeeze().cpu().numpy()
-
-        global_position = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
-
-        if (self.num_envs == 1):
-            base_pos = base_pos.reshape((1, *base_pos.shape))
-            base_ori = base_ori.reshape((1, *base_ori.shape))
-        for i in range(self.num_envs):
-            transform = gymapi.Transform(gymapi.Vec3(base_pos[i][0], base_pos[i][1], base_pos[i][2]),
-                                         gymapi.Quat(base_ori[i][0], base_ori[i][1], base_ori[i][2], base_ori[i][3]))
-            if point_local is not None:
-                transformed_position = transform.transform_point(gymapi.Vec3(point_local[i][0], point_local[i][1], point_local[i][2]))
-                global_position[i] = torch.tensor([[transformed_position.x, transformed_position.y, transformed_position.z]],  dtype=torch.float, device=self.device, requires_grad=False)
-            if vector_local is not None:
-                transformed_vector = transform.transform_vector(gymapi.Vec3(vector_local[i][0], vector_local[i][1], vector_local[i][2]))
-                global_position[i] = torch.tensor([[transformed_vector.x, transformed_vector.y, transformed_vector.z]],  dtype=torch.float, device=self.device, requires_grad=False)
-
-        return global_position
+        self.commands = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        self.commands[:, 0] = 0.3
+        self.feet_air_time = torch.zeros(self.num_envs, self.foot_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
+        self.last_contacts = torch.zeros(self.num_envs, len(self.foot_indices), dtype=torch.bool, device=self.device, requires_grad=False)
+        self.prop_num = 0
 
 
     def compute_reward(self):
-        # torque penalty
-        rew_torque = torch.sum(torch.square(self.torques), dim=1) * -0.000025
+         # torque penalty
+        rew_torque = torch.sum(torch.square(self.torques), dim=1)
 
         # action rate penalty
         action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=1)
-        rew_action_rate = -0.0009 * action_rate
+        rew_action_rate = action_rate
 
         # joint acceleration penalty
         joint_acc = torch.sum(torch.square(self.last_dof_vel - self.dof_vel), dim=1)
-        rew_joint_acc = -0.00009 * joint_acc
+        rew_joint_acc = joint_acc
 
         # angular velocity penalty
-        a1_ang_vel = torch.norm(self.a1_root_states[:, 10:13], dim=1)
-        rew_ang_vel = -0.000003 * a1_ang_vel
+        # a1_ang_vel = torch.norm(self.a1_root_states[:, 10:13], dim=1)
+        # rew_ang_vel = -0.000003 * a1_ang_vel
 
-        # velocity tracking error(robot approaching policy)
-        a1_root_pos = self.a1_root_states[:, 0:3]
-        prop_root_pos = self.prop_root_states[:, 0:3]
-        a1_to_prop_dis = torch.norm(prop_root_pos - a1_root_pos, dim=1)
-        a1_to_prop_vec = (prop_root_pos - a1_root_pos) / a1_to_prop_dis.unsqueeze(1)
-        commands = 0.5 * a1_to_prop_vec
-        #print("commands", commands)
-        a1_lin_vel = self.a1_root_states[:, 7:10]
-        #print("a1_lin_vel", a1_lin_vel)
-        lin_vel_error = torch.sum(torch.square(commands[:, :2] - a1_lin_vel[:, :2]), dim=1)
-        #print("lin_vel_error", lin_vel_error)
-        rew_lin_vel_xy = torch.exp(-lin_vel_error/0.25)
-
-        # lateral deviation
         base_quat = self.a1_root_states[:, 3:7]
-        base_lin_vel = quat_rotate_inverse(base_quat, a1_lin_vel)
-        rew_lateral_deviation = torch.sqrt(torch.square(base_lin_vel[:, 1]))
+        base_lin_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 7:10])
+        base_ang_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 10:13])
 
-        # rew_energy
-        rew_energy = torch.sum(torch.square(self.torques*self.dof_vel),dim=1)
-        total_reward = 30 * torch.exp(-a1_to_prop_dis/2) + rew_torque + rew_action_rate + rew_joint_acc
-        print(total_reward)
-        #total_reward = -1. * lin_vel_error -1. * rew_lateral_deviation -1e-5 * rew_energy + 5.
+        # reward tracking goal vel
+        target_pos_rel = self.prop_root_states[:, :3] - self.rb_states[:, self.shovel_index, 0:3]
+        #target_pos_rel = self.prop_root_states[:, :3] - self.a1_root_states[:, 0:3]
+        target_pos_rel_norm = torch.norm(target_pos_rel, dim=-1, keepdim=True)
+        target_vec_norm = target_pos_rel / (target_pos_rel_norm + 1e-5)
+        #cur_vel = self.rb_states[:, self.shovel_index, 7:9]
+        cur_vel = self.a1_root_states[:, 7:9]
+        rew_tracking_goal_vel = torch.minimum(torch.sum(target_vec_norm[:, :2] * cur_vel, dim=-1), self.commands[:, 0] + 1e-5)
+        rew_into_10cm = (target_pos_rel_norm < 0.12).squeeze()
+
+        # reward cos similarity
+        cur_vel_norm = torch.norm(cur_vel, dim=-1, keepdim=True)
+        cur_vel_normed = cur_vel / cur_vel_norm
+        # 목표 벡터와 현재 속도 벡터의 코사인 유사도 계산
+        rew_cos_similarity = torch.sum(target_vec_norm[:, :2] * cur_vel_normed, dim=1)
+
+        # reward tracking yaw
+        target_yaw = torch.atan2(target_vec_norm[:, 1], target_vec_norm[:, 0])
+        _, pitch, yaw = euler_from_quaternion(base_quat)
+        rew_tracking_yaw = torch.exp(-torch.abs(target_yaw - yaw))
+
+        # reward ang vel xy
+        rew_ang_vel_xy = torch.sum(torch.square(base_ang_vel[:, :2]), dim=1)
+
+        # reward hip pos
+        rew_hip_pos = torch.sum(torch.square(self.dof_pos[:, self.hip_joint_indices] - self.default_dof_pos[:, self.hip_joint_indices]), dim=1)
+
+        # reward_feet_air_time(self)
+        # Reward long steps
+        # Need to filter the contacts because the contact reporting of PhysX is unreliable on meshes
+        contact = self.contact_forces[:, self.foot_indices, 2] > 1.
+        contact_filt = torch.logical_or(contact, self.last_contacts)
+        self.last_contacts = contact
+        first_contact = (self.feet_air_time > 0.) * contact_filt
+        self.feet_air_time += self.dt
+        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) # reward only on first contact with the ground
+        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
+        self.feet_air_time *= ~contact_filt
+
+        #total_reward = 3.5 * rew_tracking_goal_vel + 1.0 * rew_tracking_yaw\
+        #                     -0.004 * rew_hip_pos\
+        #       - 0.000003 * rew_torque -0.001 * rew_action_rate -0.0002 * rew_joint_acc + 1.5 * self.dt * rew_airTime
+
+        total_reward = 3.5 * rew_tracking_goal_vel + 1.0 * rew_tracking_yaw\
+                -0.00001 * rew_torque -0.003 * rew_action_rate -0.01 * rew_joint_acc
+
+        rew_approach = (target_pos_rel_norm < 0.05).squeeze().bool()
+
+
         total_reward = torch.clip(total_reward, 0., None)
         self.rew_buf[:] = total_reward.detach()
+        shovel_contact = torch.norm(self.contact_forces[:, self.shovel_index, :], dim=-1)
 
         reset = torch.norm(self.contact_forces[:, self.trunk_index, :], dim=1) > 1.
         reset = reset | torch.any(torch.norm(self.contact_forces[:, self.calf_indices, :], dim=2) > 1., dim=1)
         reset = reset | torch.any(torch.norm(self.contact_forces[:, self.thigh_indices, :], dim=2) > 1., dim=1)
         bed_contact_force_norm = torch.norm(self.contact_forces[:, self.bed_index, :], dim=1)
         reset = reset | (bed_contact_force_norm > 120.).bool()
+        reset = reset | shovel_contact.bool()
+        reset = reset | (target_pos_rel_norm < 0.05).squeeze().bool()
 
         time_out = self.progress_buf >= self.max_episode_length - 1  # no terminal reward for time-outs
         reset = reset | time_out
 
         self.reset_buf[:] = reset
+
+

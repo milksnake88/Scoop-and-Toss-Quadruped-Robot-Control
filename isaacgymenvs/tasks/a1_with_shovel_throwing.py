@@ -1,0 +1,666 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import torch
+import csv
+
+from isaacgym import gymtorch
+from isaacgym import gymapi
+from isaacgym.torch_utils import *
+
+from isaacgymenvs.tasks.base.vec_task import VecTask
+
+from typing import Tuple, Dict
+class A1WithShovelThrowing(VecTask):
+
+    def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+
+        self.cfg = cfg
+
+        self.action_scale = self.cfg["env"]["control"]["actionScale"]
+
+        # reward scales
+        self.rew_scales = {}
+        self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
+
+        # randomization
+        self.randomization_params = self.cfg["task"]["randomization_params"]
+        self.randomize = self.cfg["task"]["randomize"]
+
+         # plane params
+        self.plane_static_friction = self.cfg["env"]["plane"]["staticFriction"]
+        self.plane_dynamic_friction = self.cfg["env"]["plane"]["dynamicFriction"]
+        self.plane_restitution = self.cfg["env"]["plane"]["restitution"]
+
+        # base init state
+        base_pos = self.cfg["env"]["baseInitState"]["pos"]
+        base_rot = self.cfg["env"]["baseInitState"]["rot"]
+        base_v_lin = self.cfg["env"]["baseInitState"]["vLinear"]
+        base_v_ang = self.cfg["env"]["baseInitState"]["vAngular"]
+        base_state = base_pos + base_rot + base_v_lin + base_v_ang
+        self.base_init_state = base_state
+
+        # default joint positions
+        self.named_default_joint_angles = self.cfg["env"]["defaultJointAngles"]
+
+        self.cfg["env"]["numObservations"] = 49
+        self.cfg["env"]["numActions"] = 12
+
+        # box init state. TODO: add to cfg file
+        box_pos = [0.34, 0.13, 0.025]
+        #box_pos = [0.25, 0., 0.025]
+        box_rot = [0., 0., 0., 1.]
+        box_v_lin = [0., 0., 0.]
+        box_v_ang = [0., 0., 0.]
+        box_state = box_pos + box_rot + box_v_lin + box_v_ang
+        self.box_init_state = box_state
+
+        super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
+
+        # other
+        self.dt = self.sim_params.dt # 0.02
+        self.max_episode_length_s = self.cfg["env"]["learn"]["episodeLength_s"] # 50, episode length in seconds
+        self.max_episode_length = int(self.max_episode_length_s / self.dt + 0.5)
+        self.Kp = self.cfg["env"]["control"]["stiffness"]
+        self.Kd = self.cfg["env"]["control"]["damping"]
+
+        for key in self.rew_scales.keys():
+            self.rew_scales[key] *= self.dt
+
+        if self.viewer != None:
+            p = self.cfg["env"]["viewer"]["pos"]
+            lookat = self.cfg["env"]["viewer"]["lookat"]
+            cam_pos = gymapi.Vec3(p[0], p[1], p[2])
+            cam_target = gymapi.Vec3(lookat[0], lookat[1], lookat[2])
+            self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
+
+        # get gym state tensors
+        actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
+        dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
+        torques = self.gym.acquire_dof_force_tensor(self.sim)
+        _rb_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.gym.refresh_dof_force_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+        self.actors_per_env = self.gym.get_sim_actor_count(self.sim) // self.num_envs
+        self.dofs_per_env = self.gym.get_sim_dof_count(self.sim) // self.num_envs
+        # create some wrapper tensors for different slices
+        self.root_states = gymtorch.wrap_tensor(actor_root_state)
+        self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
+        self.dof_pos = self.dof_state.view(self.num_envs, self.dofs_per_env, 2)[..., 0]
+        self.rb_states = gymtorch.wrap_tensor(_rb_states).view(self.num_envs, -1, 13)
+        self.dof_vel = self.dof_state.view(self.num_envs, self.dofs_per_env, 2)[..., 1]
+        self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)
+        self.torques = gymtorch.wrap_tensor(torques).view(self.num_envs, self.num_dof)
+        self.a1_root_states = self.root_states.view(self.num_envs, self.actors_per_env, 13)[:, 0, :]
+        self.prop_root_states = self.root_states.view(self.num_envs, self.actors_per_env, 13)[:, 1, :]
+
+        self.all_actor_indices = torch.arange(self.actors_per_env * self.num_envs, dtype=torch.int32, device=self.device).view(self.num_envs, self.actors_per_env)
+
+        self.FL_shovel_joint_index = self.gym.find_actor_dof_handle(self.envs[0], self.a1_handles[0], "FL_shovel_joint")
+        self.FL_hip_joint_index = self.gym.find_actor_dof_handle(self.envs[0], self.a1_handles[0], "RR_hip_joint")
+        self.default_dof_pos = torch.zeros_like(self.dof_pos, dtype=torch.float, device=self.device, requires_grad=False)
+        for i in range(self.num_dof):
+            name = self.dof_names[i]
+            if name=="FL_shovel_joint":
+                continue
+            angle = self.named_default_joint_angles[name]
+            self.default_dof_pos[:, i] = angle
+
+        # initialize some data used later on
+        self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
+        # tensor([ 0.,  0., -1.])
+        self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
+
+        self.base_lin_vel_before = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.bed_position_local = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+        self.bed_position_local[:, 2] = 0.06 # bed joint position in base frame
+
+        foot_names = [s for s in self.body_names if "foot" in s]
+        self.foot_indices = torch.zeros(len(foot_names), dtype=torch.long, device=self.device, requires_grad=False)
+        thigh_names = [s for s in self.body_names if "thigh" in s] # thigh and thigh_shoulder
+        self.thigh_indices = torch.zeros(len(thigh_names), dtype=torch.long, device=self.device, requires_grad=False)
+        calf_names = [s for s in self.body_names if "calf" in s]
+        self.calf_indices = torch.zeros(len(calf_names), dtype=torch.long, device=self.device, requires_grad=False)
+
+        for i in range(len(foot_names)):
+            self.foot_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], foot_names[i])
+        for i in range(len(thigh_names)):
+            self.thigh_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], thigh_names[i])
+        for i in range(len(calf_names)):
+            self.calf_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], calf_names[i])
+
+        self.trunk_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "trunk")
+        self.shovel_bottom_index = self.gym.find_actor_rigid_body_handle(self.envs[0], self.a1_handles[0], "FL_shovel_bottom")
+
+        self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self.last_dof_vel = torch.zeros_like(self.dof_vel, dtype=torch.float, device=self.device, requires_grad=False)
+        self.landing = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.picked = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+
+        self.last_contacts = torch.zeros(self.num_envs, len(self.foot_indices), dtype=torch.bool, device=self.device, requires_grad=False)
+
+        self.randing_cnt = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        self.episode_cnt = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        self.update_cnt = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_forward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_backward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_right = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_left = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.reset_progress_s = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.reset_progress_s[:] = 3
+        self.offset_degree = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.offset_degree[:] = 10
+
+        self.scoop_log = []
+        self.how_many_reset = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.current_traj = []       # 현재 궤적 저장
+        self.all_trajectories = []   # 여러 궤적을 누적 저장할 리스트 (필요시)
+        self.cnt = 0
+
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+
+    def create_sim(self):
+        self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
+        self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
+        self._create_ground_plane()
+        self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
+
+        # If randomizing, apply once immediately on startup before the fist sim step
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
+
+    def _create_ground_plane(self):
+        plane_params = gymapi.PlaneParams()
+        plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
+        plane_params.static_friction = self.plane_static_friction
+        plane_params.dynamic_friction = self.plane_dynamic_friction
+        self.gym.add_ground(self.sim, plane_params)
+
+    def _create_envs(self, num_envs, spacing, num_per_row):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../assets')
+
+        # load a1 asset
+        a1_asset_file = "urdf/a1_with_shovel_description/urdf/a1_with_shovel_passive_joint_black.urdf"
+        a1_asset_options = gymapi.AssetOptions()
+        a1_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
+        a1_asset_options.replace_cylinder_with_capsule = False
+        a1_asset_options.flip_visual_attachments = True
+        a1_asset_options.fix_base_link = self.cfg["env"]["urdfAsset"]["fixBaseLink"]
+        a1_asset_options.thickness = 0.003 #Thickness of the collision shapes. Sets how far objects should come to rest from the surface of this body
+        a1_asset_options.disable_gravity = False
+        a1_asset_options.vhacd_enabled= True
+
+        a1_asset = self.gym.load_asset(self.sim, asset_root, a1_asset_file, a1_asset_options)
+        self.num_dof = self.gym.get_asset_dof_count(a1_asset)
+        self.num_bodies = self.gym.get_asset_rigid_body_count(a1_asset) # 25
+
+        a1_start_pose = gymapi.Transform()
+        a1_start_pose.p = gymapi.Vec3(*self.base_init_state[:3])
+        a1_start_pose.r = gymapi.Quat(*self.base_init_state[3:7])
+
+        self.body_names = self.gym.get_asset_rigid_body_names(a1_asset)
+        self.dof_names = self.gym.get_asset_dof_names(a1_asset)
+        a1_dof_props = self.gym.get_asset_dof_properties(a1_asset)
+        a1_FL_shovel_joint_index = self.gym.find_asset_dof_index(a1_asset, "FL_shovel_joint")
+
+        for i in range(self.num_dof):
+            a1_dof_props['driveMode'][i] = 1 #gymapi.DOF_MODE_POS
+            a1_dof_props['stiffness'][i] = 60.
+            a1_dof_props['damping'][i] = 3.
+        a1_dof_props['stiffness'][a1_FL_shovel_joint_index] = 0.0001
+        a1_dof_props['damping'][a1_FL_shovel_joint_index] = 0.0001
+        self.lower_dof_limits = torch.tensor(a1_dof_props['lower'], device=self.device)
+        self.upper_dof_limits = torch.tensor(a1_dof_props['upper'], device=self.device)
+        body_dict = self.gym.get_asset_rigid_body_dict(a1_asset)
+        """
+        {'base': 0, 'trunk': 1,
+        'FL_hip': 2, 'FL_thigh_shoulder': 3, 'FL_thigh': 4, 'FL_calf': 5, 'FL_foot': 6, 'FL_shovel': 7,
+        'FR_hip': 8, 'FR_thigh_shoulder': 9, 'FR_thigh': 10, 'FR_calf': 11, 'FR_foot': 12,
+        'RL_hip': 13, 'RL_thigh_shoulder': 14, 'RL_thigh': 15, 'RL_calf': 16, 'RL_foot': 17,
+        'RR_hip': 18, 'RR_thigh_shoulder': 19, 'RR_thigh': 20, 'RR_calf': 21, 'RR_foot': 22,
+        'bed': 23, 'bed_bottom': 24, 'imu_link': 25}
+        """
+        a1_body_shape_indices = self.gym.get_asset_rigid_body_shape_indices(a1_asset)
+        a1_body_shape_props = self.gym.get_asset_rigid_shape_properties(a1_asset)
+
+        thigh_names = [s for s in self.body_names if "thigh" in s] # thigh and thigh_shoulder
+        thigh_indices = [body_dict[thigh_names[i]] for i in range(len(thigh_names))]
+
+        for thigh_idx in thigh_indices:
+            for i in range(a1_body_shape_indices[thigh_idx].count):
+                a1_body_shape_props[a1_body_shape_indices[thigh_idx].start + i].filter = 1
+
+        FL_shovel_index = body_dict["FL_shovel"]
+        a1_body_shape_props[FL_shovel_index].friction = 0.5
+
+        hip_names = [s for s in self.dof_names if "hip" in s]
+        self.hip_joint_indices = torch.zeros(len(hip_names), dtype=torch.long, device=self.device, requires_grad=False)
+
+        for i in range(len(hip_names)):
+            print(hip_names)
+            self.hip_joint_indices[i] = self.gym.find_asset_dof_index(a1_asset, hip_names[i])
+        print(self.hip_joint_indices)
+        # create a1 asset
+        box_size = 0.04
+        box_asset_options = gymapi.AssetOptions()
+        box_asset_options.density = 1500 #422 # kg/m^3
+        box_asset_options.fix_base_link = False
+        box_asset_options.disable_gravity = False
+        box_asset = self.gym.create_box(self.sim, box_size, box_size, box_size, box_asset_options)
+
+        box_pose = gymapi.Transform()
+        box_pose.p = gymapi.Vec3(*self.box_init_state[:3]) # set manually
+        box_pose.r = gymapi.Quat(*self.box_init_state[3:7])
+
+        # create env
+        self.envs = []
+        self.a1_handles = []
+        self.a1_indices = []
+        self.a1_init_state = []
+        self.prop_handles = []
+        self.prop_indices = []
+        self.prop_init_state = []
+
+        env_lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        env_upper = gymapi.Vec3(spacing, spacing, spacing)
+
+        for i in range(self.num_envs):
+            # create env instance
+            env_ptr = self.gym.create_env(self.sim, env_lower, env_upper, num_per_row)
+            self.envs.append(env_ptr)
+
+            a1_handle = self.gym.create_actor(env_ptr, a1_asset, a1_start_pose,  "a1", i, 0, 0)
+            self.gym.set_actor_dof_properties(env_ptr, a1_handle, a1_dof_props)
+            self.gym.set_actor_rigid_shape_properties(env_ptr, a1_handle, a1_body_shape_props)
+            self.gym.enable_actor_dof_force_sensors(env_ptr, a1_handle)
+            self.a1_handles.append(a1_handle)
+            a1_idx = self.gym.get_actor_index(env_ptr, a1_handle, gymapi.DOMAIN_SIM)
+            self.a1_indices.append(a1_idx)
+            self.a1_init_state.append(self.base_init_state)
+
+            prop_handle = self.gym.create_actor(env_ptr, box_asset, box_pose, "prop", i, 0, 0 )
+            self.prop_handles.append(prop_handle)
+            prop_idx = self.gym.get_actor_index(env_ptr, prop_handle, gymapi.DOMAIN_SIM)
+            self.prop_indices.append(prop_idx)
+            self.prop_init_state.append(self.box_init_state)
+
+        self.a1_indices = to_torch(self.a1_indices, dtype=torch.long, device=self.device)
+        self.a1_init_state = to_torch(self.a1_init_state, dtype=torch.float, device=self.device).view(self.num_envs, 13)
+        self.prop_indices = to_torch(self.prop_indices, dtype=torch.long, device=self.device)
+        self.prop_init_state = to_torch(self.prop_init_state, dtype=torch.float, device=self.device).view(self.num_envs, 13)
+
+    def pre_physics_step(self, actions):
+        # resets
+        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        if len(env_ids) > 0:
+            self.reset_idx(env_ids)
+
+        self.actions = actions.clone().to(self.device)
+        tensor_to_insert = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
+        action = torch.cat((self.actions[:, :self.FL_shovel_joint_index], tensor_to_insert, self.actions[:, self.FL_shovel_joint_index:]), dim=1)
+        #targets = 0.5 * self.actions + self.default_dof_pos
+        targets = 0.5 * action + self.default_dof_pos
+
+        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(targets))
+
+    def post_physics_step(self):
+        self.gym.refresh_dof_state_tensor(self.sim)  # done in step
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.gym.refresh_dof_force_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+        self.progress_buf += 1
+
+        self.compute_observations()
+        self.compute_reward()
+
+        self.last_actions[:] = self.actions[:]
+        self.last_dof_vel[:] = self.dof_vel[:]
+
+    def get_transformed_position(self, point_local=None, vector_local=None, point_global=None):
+        base_pos = self.a1_root_states[:, 0:3].squeeze().cpu().numpy()
+        base_ori = self.a1_root_states[:, 3:7].squeeze().cpu().numpy()
+
+        result = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False)
+
+        if (self.num_envs == 1):
+            base_pos = base_pos.reshape((1, *base_pos.shape))
+            base_ori = base_ori.reshape((1, *base_ori.shape))
+        for i in range(self.num_envs):
+            transform = gymapi.Transform(gymapi.Vec3(base_pos[i][0], base_pos[i][1], base_pos[i][2]),
+                                         gymapi.Quat(base_ori[i][0], base_ori[i][1], base_ori[i][2], base_ori[i][3]))
+            transform_inverse = transform.inverse()
+            if point_local is not None:
+                transformed_position = transform.transform_point(gymapi.Vec3(point_local[i][0], point_local[i][1], point_local[i][2]))
+                result[i] = torch.tensor([[transformed_position.x, transformed_position.y, transformed_position.z]],  dtype=torch.float, device=self.device, requires_grad=False)
+            if vector_local is not None:
+                transformed_vector = transform.transform_vector(gymapi.Vec3(vector_local[i][0], vector_local[i][1], vector_local[i][2]))
+                result[i] = torch.tensor([[transformed_vector.x, transformed_vector.y, transformed_vector.z]],  dtype=torch.float, device=self.device, requires_grad=False)
+            if point_global is not None:
+                transformed_position = transform_inverse.transform_point(gymapi.Vec3(point_global[i][0], point_global[i][1], point_global[i][2]))
+                result[i] = torch.tensor([[transformed_position.x, transformed_position.y, transformed_position.z]],  dtype=torch.float, device=self.device, requires_grad=False)
+        return result
+
+    def compute_observations(self):
+        base_quat = self.a1_root_states[:, 3:7] # quaternion
+        # states from imu(quaternion, gyroscope, accelerometer)
+        # 1. quaternion
+        projected_gravity = quat_rotate_inverse(base_quat, self.gravity_vec)
+        # 2. gyroscope
+        base_ang_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 10:13])
+        # 3. accelerometer
+        base_lin_vel = quat_rotate_inverse(base_quat, self.a1_root_states[:, 7:10])
+        accelerometer = ((base_lin_vel - self.base_lin_vel_before) / self.dt) - quat_rotate_inverse(base_quat, self.gravity_vec)
+        self.base_lin_vel_before = base_lin_vel
+        # pos_of_prop_wrt_a1_base
+        prop_root_pos = self.prop_root_states[:, 0:3]
+        pos_of_prop_wrt_a1_base = self.get_transformed_position(point_global=prop_root_pos)
+        # distance between shovel to prop
+        shovel_bottom_pos = self.rb_states[:, self.shovel_bottom_index, 0:3]
+        shovel_to_prop_dis = torch.norm(prop_root_pos - shovel_bottom_pos, dim=1, keepdim=True)
+
+
+        self.dof_pos_new = torch.cat((self.dof_pos[:, :self.FL_shovel_joint_index], self.dof_pos[:, self.FL_shovel_joint_index+1:]), dim=1)
+        self.dof_vel_new = torch.cat((self.dof_vel[:, :self.FL_shovel_joint_index], self.dof_vel[:, self.FL_shovel_joint_index+1:]), dim=1)
+
+        self.obs_buf[:] = torch.cat((pos_of_prop_wrt_a1_base,#3
+                                     shovel_to_prop_dis, #1
+                                     projected_gravity, #3
+                                     base_ang_vel, #3
+                                     accelerometer, #3
+                                     #self.dof_pos, #12
+                                     #self.dof_vel, #12
+                                     self.dof_pos_new,
+                                     self.dof_vel_new,
+                                     self.actions, #12
+                                     ), dim=-1)
+
+        prop_pos = self.prop_root_states[0, 0:3].cpu().numpy()
+        self.current_traj.append(tuple(prop_pos))
+
+    def update_curriculum(self, env_idx):
+        self.offset_forward[env_idx] += 0.05
+        self.offset_backward[env_idx] -= 0.05
+        self.offset_right[env_idx] += 0.05
+        self.offset_left[env_idx] -= 0.05
+        self.update_cnt[env_idx] += 1
+        self.reset_progress_s[env_idx] += 0.5
+        self.offset_degree[env_idx] += 5
+
+    def save_trajectories(self, trajectories, path):
+        """
+        trajectories: List[List[Tuple[float, float, float]]]  # [1000][step][x, y, z]
+        path: str  # 저장할 csv 경로
+        """
+        rows = []
+
+        for test_id, traj in enumerate(trajectories):
+            for step, (x, y, z) in enumerate(traj):
+                rows.append({
+                    "test_id": test_id,
+                    "step": step,
+                    "x": x,
+                    "y": y,
+                    "z": z
+                })
+
+        df = pd.DataFrame(rows)
+        df.to_csv(path, index=False)
+        print(f"[log] Saved trajectory data to {path}")
+
+    def save_log(self, scoop_log, path):
+        df = pd.DataFrame(scoop_log)
+        df.to_csv(path, index=False)
+        print(f"[log] Saved scoop result to {path}")
+
+    def reset_idx(self, env_ids):
+        # Randomization can happen only at reset time, since it can reset actor positions on GPU
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
+
+        positions_offset = torch_rand_float(0.9, 1.1, (len(env_ids), self.num_dof), device=self.device)
+        velocities = torch_rand_float(-0.1, 0.1, (len(env_ids), self.num_dof), device=self.device)
+
+        self.dof_pos[env_ids] = self.default_dof_pos[env_ids] #* positions_offset
+        self.dof_vel[env_ids] = velocities
+
+        # reset root state for all actors in selected envs
+        self.root_states[self.a1_indices[env_ids]] = self.a1_init_state[env_ids].clone()
+        #random_a1_init_state = self.a1_init_state[env_ids].clone()
+        #theta_deg = torch.FloatTensor(1).uniform_(-10, 10)
+        # 각도를 라디안으로 변환
+        #theta = theta_deg * (torch.pi / 180.0)
+        #random_a1_init_state[:, 3:7] = torch.tensor([0., 0., torch.sin(theta / 2), torch.cos(theta / 2)])
+        #self.root_states[self.a1_indices[env_ids]] = random_a1_init_state
+
+        """
+        prop_position_offset = torch_rand_float(0.7, 1.3, (len(env_ids), 2), device=self.device)
+        temp = self.prop_init_state[env_ids].clone()
+        temp[:, 0:2] *= prop_position_offset
+        self.root_states[self.prop_indices[env_ids]] = temp
+        """
+
+        r = 5 * torch.rand(1, device=self.device)
+        theta = 2 * torch.pi * torch.rand(1, device=self.device)
+        x = r * torch.cos(theta)
+        y = r * torch.sin(theta)
+
+        random_prop_init_pos = self.prop_init_state[env_ids].clone()
+        random_prop_init_pos[:, 0] = x.squeeze(-1)
+        random_prop_init_pos[:, 1] = y.squeeze(-1)
+        self.root_states[self.prop_indices[env_ids]] = random_prop_init_pos
+
+        success = self.landing[env_ids].cpu().numpy()
+        x_pos = random_prop_init_pos[env_ids, 0].cpu().numpy()
+        y_pos = random_prop_init_pos[env_ids, 1].cpu().numpy()
+
+        for x, y, s in zip(x_pos, y_pos, success):
+            self.scoop_log.append({'x': x, 'y': y, 'success': bool(s)})
+
+        if self.landing[0]:  # 성공한 경우만 저장
+            if len(self.current_traj) > 0:
+                self.all_trajectories.append(self.current_traj)
+                self.cnt += 1
+                print(self.cnt)
+        self.current_traj = []  # 항상 초기화
+
+        if self.how_many_reset[env_ids] == 500:
+            self.save_log(self.scoop_log, "scoop_log_500_passive_joint.csv")
+            #self.save_trajectories(self.all_trajectories, "trajectories_100.csv")
+        #if self.how_many_reset[env_ids] == 400:
+            #self.save_log(self.scoop_log, "scoop_log_1000_rad5_ep4000.csv")
+            #self.save_trajectories(self.all_trajectories, "trajectories_400.csv")
+
+        """
+        # CSV 불러오기
+        df1 = pd.read_csv("scoop_log_100_passive_joint.csv")
+        #df2 = pd.read_csv("scoop_log_500_seed30.csv")
+        #df = pd.concat([df1, df2], ignore_index=True)
+        df = df1
+
+        # scoop 중심 좌표
+        center_x, center_y = 0.25, 0.13
+        dx = df['x'].values - center_x
+        dy = df['y'].values - center_y
+        r = np.sqrt(dx**2 + dy**2)
+        s = df['success'].values.astype(bool)
+        # 성공/실패 마스크
+        success_mask = df['success'] > 0.5  # 또는 df['success'] == 1
+
+        # 반경별 성공률
+        radial_texts = []
+        for r_min, r_max in [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]:
+            in_bin = (r >= r_min) & (r < r_max)
+            total = np.sum(in_bin)
+            success = np.sum(s[in_bin])
+            rate = success / total if total > 0 else 0.0
+            radial_texts.append(f"{r_min}-{r_max}m: {rate:.1%} ({success}/{total})")
+
+        # 방향별 성공률
+        quad_texts = []
+        quadrants = {
+            #'right': (dx > 0) & (np.abs(dx) >= np.abs(dy)),
+            #'left':  (dx < 0) & (np.abs(dx) >= np.abs(dy)),
+            #'up':    (dy > 0) & (np.abs(dy) > np.abs(dx)),
+            #'down':  (dy < 0) & (np.abs(dy) > np.abs(dx)),
+            'forward(+x)': dx > 0,
+            'backward(-x)': dx < 0,
+            'left(+y)': dy > 0,
+            'right(-y)': dy < 0,
+        }
+        for label, cond in quadrants.items():
+            total = np.sum(cond)
+            success = np.sum(s[cond])
+            rate = success / total if total > 0 else 0.0
+            quad_texts.append(f"{label}: {rate:.1%} ({success}/{total})")
+
+        # 시각화
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.set_aspect('equal')
+
+        # 성공한 위치 (파란색)
+        ax.scatter(df[success_mask]['x'], df[success_mask]['y'], c='skyblue', s=10, alpha=1.0, label='Success')
+        # 실패한 위치 (주황색)
+        ax.scatter(df[~success_mask]['x'], df[~success_mask]['y'], c='coral', s=10, alpha=1.0, label='Failure')
+        ax.scatter([0.25], [0.13], c='black', marker='x', s=80, linewidths=2, label='Scoop Position')
+
+        # 작업 반경 표시 (예: 성공 기준 거리 0.7m)
+        circle1 = plt.Circle((0.25, 0.13), 1.0, color='blue', fill=False, linestyle='--')
+        circle2 = plt.Circle((0.25, 0.13), 2.0, color='blue', fill=False, linestyle='--')
+        circle3 = plt.Circle((0.25, 0.13), 3.0, color='blue', fill=False, linestyle='--')
+        circle4 = plt.Circle((0.25, 0.13), 4.0, color='blue', fill=False, linestyle='--')
+        circle5 = plt.Circle((0.25, 0.13), 5.0, color='blue', fill=False, linestyle='--')
+        ax.add_patch(circle1)
+        ax.add_patch(circle2)
+        ax.add_patch(circle3)
+        ax.add_patch(circle4)
+        ax.add_patch(circle5)
+
+        ax.axhline(center_y, color='green', linestyle='--', linewidth=0.8)
+        ax.axvline(center_x, color='green', linestyle='--', linewidth=0.8)
+
+        for i, text in enumerate(radial_texts):
+            ax.text(center_x + 1.7, center_y + 3. - 0.2 * i, text, fontsize=9, color='blue')
+        for i, text in enumerate(quad_texts):
+            ax.text(center_x - 3.5, center_y + 3. - 0.2 * i, text, fontsize=9, color='green')
+
+        # 설정
+        ax.set_xlabel('X position (m)')
+        ax.set_ylabel('Y position (m)')
+        ax.set_title('Scoop and Toss Success/Failure Regions')
+        ax.set_xlim(-5.5, 5.5)  # 필요시 작업 반경에 맞게 확장
+        ax.set_ylim(-5.5, 5.5)
+        ax.grid(True)
+        ax.legend(loc='lower right')
+        plt.tight_layout()
+        plt.show()
+        """
+
+        """
+        # 궤적 데이터를 딕셔너리로 불러오기
+        trajectories = {}
+
+        with open('trajectories_200.csv', newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                test_id = int(row['test_id'])
+                x = float(row['x'])
+                y = float(row['y'])
+                z = float(row['z'])
+
+                if test_id not in trajectories:
+                    trajectories[test_id] = {'x': [], 'y': [], 'z': []}
+
+                trajectories[test_id]['x'].append(x)
+                trajectories[test_id]['y'].append(y)
+                trajectories[test_id]['z'].append(z)
+
+        fig = plt.figure(figsize=(10, 6))
+        ax = fig.add_subplot(111, projection='3d')
+
+        i = 0
+        for traj in trajectories.values():
+            ax.plot(traj['x'], traj['y'], traj['z'], c='blue', alpha=0.1)
+            i += 1
+            if i == 130:
+                # 시작점과 끝점에 텍스트 추가
+                init_x, init_y, init_z = traj['x'][0], traj['y'][0], traj['z'][0]
+                final_x, final_y, final_z = traj['x'][-1], traj['y'][-1], traj['z'][-1]
+
+                ax.text(init_x+0.4, init_y, init_z-0.01, "init", color='red', fontsize=8, bbox=dict(facecolor='yellow', alpha=0.7, edgecolor='none'))
+                ax.text(final_x-0.5, final_y, final_z-0.02, "final", color='red', fontsize=8, bbox=dict(facecolor='yellow', alpha=0.7, edgecolor='none'))
+            if i == 150:
+                break
+        ax.set_title(f"Object Trajectories")
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+
+        ax.view_init(elev=10, azim=35)
+        plt.tight_layout()
+        plt.show()
+        """
+
+        """
+        prop_position_offset_x = torch_rand_float(-0.2, 0.2, (len(env_ids), 1), device=self.device)
+        prop_position_offset_y = torch_rand_float(-0.2, 0.2, (len(env_ids), 1), device=self.device)
+        random_prop_init_state = self.prop_init_state[env_ids].clone()
+        change_in_x = prop_position_offset_x.squeeze(-1)  # x축의 변화량
+        change_in_y = prop_position_offset_y.squeeze(-1)  # y축의 변화량
+
+        random_prop_init_state[:, 0] += change_in_x
+        random_prop_init_state[:, 1] += change_in_y
+        #self.reset_progress_s[env_ids] = 0.7 + 3 * (torch.abs(change_in_x) + torch.abs(change_in_y))
+
+        theta_deg = torch.FloatTensor(1).uniform_(0, 90)
+        theta = theta_deg * (torch.pi / 180.0) # 각도를 라디안으로 변환
+        #random_prop_init_state[:, 3:7] = torch.tensor([0., 0., torch.sin(theta / 2), torch.cos(theta / 2)])
+
+        self.root_states[self.prop_indices[env_ids]] = random_prop_init_state
+        """
+
+        """
+        random_prop_init_pos = self.prop_init_state.clone()
+        for env_idx in env_ids:
+            if self.randing_cnt[env_idx]:
+                self.episode_cnt[env_idx] += 1
+            if (self.episode_cnt[env_idx]>10) & ((self.randing_cnt[env_idx]/self.episode_cnt[env_idx])>0.8):
+                self.update_curriculum(env_idx)
+                self.episode_cnt[env_idx] = 0
+                self.randing_cnt[env_idx] = 0
+                print("env ", env_idx, " update_curr", self.update_cnt[env_idx])
+            prop_position_offset_x = torch_rand_float(self.offset_backward[env_idx], self.offset_forward[env_idx], (1, 1), device=self.device)
+            prop_position_offset_y = torch_rand_float(self.offset_left[env_idx], self.offset_right[env_idx], (1, 1), device=self.device)
+            random_prop_init_pos[env_idx, 0] += prop_position_offset_x.item()
+            random_prop_init_pos[env_idx, 1] += prop_position_offset_y.item()
+            self.root_states[self.prop_indices[env_idx]] = random_prop_init_pos[env_idx]
+        """
+
+        actor_indices = self.all_actor_indices[env_ids].flatten()
+        self.gym.set_actor_root_state_tensor_indexed(self.sim,
+                                                     gymtorch.unwrap_tensor(self.root_states),
+                                                     gymtorch.unwrap_tensor(actor_indices), len(actor_indices))
+
+        # reset DOF state for a1 in selected envs
+        a1_indice = self.a1_indices[env_ids].to(torch.int32)
+        self.gym.set_dof_state_tensor_indexed(self.sim,
+                                              gymtorch.unwrap_tensor(self.dof_state),
+                                              gymtorch.unwrap_tensor(a1_indice), len(a1_indice))
+        self.progress_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 1
+        self.base_lin_vel_before[env_ids, :] = torch.tensor([0., 0., 0.], dtype=torch.float, device=self.device, requires_grad=False)
+
+        self.last_actions[env_ids] = 0.
+        self.last_dof_vel[env_ids] = 0.
+        self.landing[env_ids] = 0.
+        self.picked[env_ids] = 0.
+        self.how_many_reset[env_ids] += 1
+

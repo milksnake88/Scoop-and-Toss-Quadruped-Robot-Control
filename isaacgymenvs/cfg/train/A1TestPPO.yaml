@@ -2,17 +2,17 @@ params:
   seed: ${...seed}
 
   algo:
-    name: a2c_discrete_moe_two_actions #a2c_continuous_moe_two_actions #a2c_discrete_moe_two_actions
+    name: a2c_discrete_moe_two_actions
 
   experts:
     expert1:
       name: 'a1_run_test38'
-      checkpoint: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/a1_run_test46/nn/a1_run_test46.pth' #abs path
-      config: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/a1_run_test46/config.yaml'
+      checkpoint: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/a1_run_test49/nn/a1_run_test49.pth'
+      config: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/a1_run_test49/config.yaml'
     expert2:
       name: 'pi_pick_throw_test14'
-      checkpoint:  '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/pi_pick_throw_test36/nn/pi_pick_throw_test36.pth' #abs path
-      config: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/pi_pick_throw_test36/config.yaml'
+      checkpoint:  '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/pi_pick_throw_test70_STI/nn/pi_pick_throw_test70_STI.pth' #36
+      config: '/home/mj/IsaacGymEnvs/isaacgymenvs/runs/pi_pick_throw_test70_STI/config.yaml'
     env_info:
       actions_num: 12
       agent: 1
@@ -22,10 +22,10 @@ params:
 
 
   model:
-    name: discrete_a2c #discrete_a2c #continuous_a2c_logstd
+    name: discrete_a2c
 
   network:
-    name: gating_network_two_actions # actor_critic
+    name: gating_network_two_actions
     separate: False
 
     space:
@@ -39,42 +39,6 @@ params:
           name: const_initializer
           val: 0. # std = 1.
         fixed_sigma: True
-
-    #cnn:
-      type: conv2d
-      activation: relu
-      initializer:
-        name: default
-      regularizer:
-        name: 'None'
-      num_channels: 1
-      image_width: 80
-      image_height: 80
-      convs:
-        - filters: 32
-          kernel_size: 5
-          strides: 2
-          padding: 2
-          pooling:
-            type: max
-            kernel_size: 2
-            strides: 2
-            padding: 0
-        - filters: 64
-          kernel_size: 3
-          strides: 2
-          padding: 1
-          pooling:
-            type: max
-            kernel_size: 2
-            strides: 2
-            padding: 0
-        - filters: 128
-          kernel_size: 3
-          strides: 2
-          padding: 1
-          pooling:
-            type: None
 
     mlp:
       units: [256, 128, 64]
@@ -102,17 +66,17 @@ params:
     reward_shaper:
       scale_value: 1.0
     normalize_advantage: True
-    gamma: 0.99
+    gamma: 1.0
     tau: 0.95
     e_clip: 0.2
-    entropy_coef: 0.0
-    learning_rate: 8.e-5 # overwritten by adaptive lr_schedule
+    entropy_coef: 0.02
+    learning_rate: 7.e-5 # overwritten by adaptive lr_schedule
     lr_schedule: adaptive
-    kl_threshold: 0.008 # target kl for adaptive lr
+    kl_threshold: 0.01 # target kl for adaptive lr
     truncate_grads: True
-    grad_norm: 1.
-    horizon_length: 24
-    minibatch_size: 32 # 2048
+    grad_norm: 2.
+    horizon_length: 48
+    minibatch_size: 4096
     mini_epochs: 5
     critic_coef: 2
     clip_value: True
@@ -125,5 +89,4 @@ params:
     score_to_win: 1000000
     save_frequency: 50
     print_stats: True
-
 

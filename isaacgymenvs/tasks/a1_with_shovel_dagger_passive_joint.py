@@ -70,8 +70,8 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         if self.viewer != None:
             p = self.cfg["env"]["viewer"]["pos"]
             lookat = self.cfg["env"]["viewer"]["lookat"]
-            cam_pos = gymapi.Vec3(p[0], p[1], p[2])
-            cam_target = gymapi.Vec3(lookat[0], lookat[1], lookat[2])
+            cam_pos = gymapi.Vec3(0, 3, 1.4)
+            cam_target = gymapi.Vec3(0, 0, 0)
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
         # get gym state tensors
@@ -156,8 +156,12 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.offset_backward = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.offset_right = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.offset_left = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.reset_progress_s = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.reset_progress_s[:] = 4 #0.7
 
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
+
+        self.smoothed_robot_pos = self.a1_root_states[:, 0:3][0].cpu().clone()
 
     def create_sim(self):
         self.up_axis_idx = 2 # index of up axis: Y=1, Z=2
@@ -204,7 +208,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
                 delta = now - self.last_frame_time
                 if self.render_fps < 0:
                     # render at control frequency
-                    render_dt = self.dt * self.control_freq_inv * 5  # render every control step
+                    render_dt = self.dt * self.control_freq_inv * 1  # render every control step
                 else:
                     render_dt = 1.0 / self.render_fps
 
@@ -246,7 +250,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         a1_asset_options.thickness = 0.003 #Thickness of the collision shapes. Sets how far objects should come to rest from the surface of this body
         a1_asset_options.disable_gravity = False
         a1_asset_options.vhacd_enabled= True
-        #a1_asset_options.use_mesh_materials = True
+        a1_asset_options.use_mesh_materials = True
 
         a1_asset = self.gym.load_asset(self.sim, asset_root, a1_asset_file, a1_asset_options)
         self.num_dof = self.gym.get_asset_dof_count(a1_asset)
@@ -265,8 +269,8 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
             a1_dof_props['driveMode'][i] = 1 #gymapi.DOF_MODE_POS
             a1_dof_props['stiffness'][i] = 60.
             a1_dof_props['damping'][i] = 3.
-        a1_dof_props['stiffness'][a1_FL_shovel_joint_index] = 0.0001
-        a1_dof_props['damping'][a1_FL_shovel_joint_index] = 0.0001
+        #a1_dof_props['stiffness'][a1_FL_shovel_joint_index] = 0.0001
+        #a1_dof_props['damping'][a1_FL_shovel_joint_index] = 0.0001
 
         body_dict = self.gym.get_asset_rigid_body_dict(a1_asset)
         a1_body_shape_indices = self.gym.get_asset_rigid_body_shape_indices(a1_asset)
@@ -286,13 +290,15 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         for i in range(len(hip_names)):
             self.hip_joint_indices[i] = self.gym.find_asset_dof_index(a1_asset, hip_names[i])
 
+        cube_asset_file = "urdf/objects/cube_multicolor.urdf"
         # create a1 asset
         box_size = 0.04
         box_asset_options = gymapi.AssetOptions()
-        box_asset_options.density = 1500 # kg/m^3
+        box_asset_options.density = 500 # kg/m^3
         box_asset_options.fix_base_link = False
         box_asset_options.disable_gravity = False
-        box_asset = self.gym.create_box(self.sim, box_size, box_size, box_size, box_asset_options)
+        #box_asset = self.gym.create_box(self.sim, box_size, box_size, box_size, box_asset_options)
+        box_asset = self.gym.load_asset(self.sim, asset_root, cube_asset_file, box_asset_options)
 
         box_pose = gymapi.Transform()
         box_pose.p = gymapi.Vec3(*self.box_init_state[:3]) # set manually
@@ -345,9 +351,16 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.actions = actions.clone().to(self.device)
         tensor_to_insert = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
         action = torch.cat((self.actions[:, :self.FL_shovel_joint_index], tensor_to_insert, self.actions[:, self.FL_shovel_joint_index:]), dim=1)
-        targets = 0.5 * action + self.default_dof_pos
+        targets = 0.5 * self.actions + self.default_dof_pos
 
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(targets))
+
+        # 로봇 위치 기반 카메라 위치 설정
+        robot_pos_now = self.root_states[:, 0:3][0].cpu().numpy()
+        alpha = 0.03  # smoothing 계수 (0.0 = 고정, 1.0 = 즉시 따라감)
+
+        # EMA update
+        self.smoothed_robot_pos = (1 - alpha) * self.smoothed_robot_pos + alpha * robot_pos_now
 
     def post_physics_step(self):
         self.gym.refresh_dof_state_tensor(self.sim)  # done in step
@@ -423,6 +436,7 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.gym.add_lines(self.viewer, self.envs[0], num_lines, line_vertices, line_colors)
 
     def compute_observations(self):
+        #bps_enc = self.get_bps(self.prop_root_states, self.obj_mesh)
         base_quat = self.a1_root_states[:, 3:7] # quaternion
         # states from imu(quaternion, gyroscope, accelerometer)
         # 1. quaternion
@@ -449,8 +463,10 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
                                      projected_gravity,
                                      base_ang_vel,
                                      accelerometer,
-                                     self.dof_pos_new,
-                                     self.dof_vel_new,
+                                     self.dof_pos,
+                                     self.dof_vel,
+                                     #self.dof_pos_new,
+                                     #self.dof_vel_new,
                                      self.actions,
                                      ), dim=-1)
 
@@ -460,6 +476,8 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         self.offset_right[env_idx] += 0.08
         self.offset_left[env_idx] -= 0.08
 
+        self.reset_progress_s[env_idx] += 0.5
+
     def reset_idx(self, env_ids):
         # Randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
@@ -468,20 +486,20 @@ class A1WithShovelDaggerPassiveJoint(VecTask):
         positions_offset = torch_rand_float(0.75, 1.25, (len(env_ids), self.num_dof), device=self.device)
         velocities = torch_rand_float(-0.1, 0.1, (len(env_ids), self.num_dof), device=self.device)
 
-        self.dof_pos[env_ids] = self.default_dof_pos[env_ids] * positions_offset
-        self.dof_vel[env_ids] = velocities
+        self.dof_pos[env_ids] = self.default_dof_pos[env_ids] #* positions_offset
+        self.dof_vel[env_ids] = 0
 
         # reset root state for all actors in selected envs
         # self.root_states[self.a1_indices[env_ids]] = self.a1_init_state[env_ids].clone()
         random_a1_init_state = self.a1_init_state[env_ids].clone()
-        theta_deg = torch.FloatTensor(1).uniform_(-30, 30)
+        theta_deg = torch.FloatTensor(1).uniform_(-20, 20)
         # 각도를 라디안으로 변환
         theta = theta_deg * (torch.pi / 180.0)
-        random_a1_init_state[:, 3:7] = torch.tensor([0., 0., torch.sin(theta / 2), torch.cos(theta / 2)])
+        #random_a1_init_state[:, 3:7] = torch.tensor([0., 0., torch.sin(theta / 2), torch.cos(theta / 2)])
         self.root_states[self.a1_indices[env_ids]] = random_a1_init_state
 
-        prop_position_offset_x = torch_rand_float(-0.7, 1.4, (len(env_ids), 1), device=self.device)
-        prop_position_offset_y = torch_rand_float(-1.12, 1.12, (len(env_ids), 1), device=self.device)
+        prop_position_offset_x = torch_rand_float(-3, 3, (len(env_ids), 1), device=self.device)
+        prop_position_offset_y = torch_rand_float(-3, 3, (len(env_ids), 1), device=self.device)
         random_prop_init_pos = self.prop_init_state[env_ids].clone()
         random_prop_init_pos[:, 0] += prop_position_offset_x.squeeze(-1)
         random_prop_init_pos[:, 1] += prop_position_offset_y.squeeze(-1)

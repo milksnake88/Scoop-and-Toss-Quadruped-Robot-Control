@@ -29,7 +29,7 @@ We design a **hierarchical policy structure** consisting of:
 ## ⚙️ Simulation Setup
 
 - **Simulator:** [Isaac Gym](https://developer.nvidia.com/isaac-gym)  
-- **Environment Count:** 2,024 parallel environments (GPU accelerated)  
+- **Environment Count:** 4,096 parallel environments (GPU accelerated)  
 - **Hardware:**  
   - NVIDIA RTX 3090 (π<sub>scoop-toss</sub>)  
   - NVIDIA RTX 4070 (π<sub>approach</sub> & π<sub>meta</sub>)  
@@ -49,11 +49,14 @@ The trained policies enable the quadruped robot to autonomously:
 - Toss them into the tray on its back  
 - Repeat this sequence for **multiple objects** with smooth transitions  
 
-🎥 **Result Video**  
-[![Scoop-and-Toss Result](https://img.youtube.com/vi/XXXXXXXXXXX/hqdefault.jpg)](https://youtu.be/XXXXXXXXXXX)
-
-*(Replace the above link with your actual result video URL.)*
 ![VideoProject5-ezgif com-crop](https://github.com/user-attachments/assets/2cb24c72-f2fa-4a3a-9c38-f6f4fec42aad)
+
+🎥 **Full Video**  
+
+For the complete results — including expert policy experiments, various-object experiments, and joy-stick control —  
+please refer to the full video below:
+
+🔗 [Watch on YouTube](https://youtu.be/uiymKDvBhqo?si=0NBjBdXMmXQbp0HV)
 
 ---
 
@@ -64,12 +67,3 @@ The trained policies enable the quadruped robot to autonomously:
 
 ---
 
-## 📄 Reference
-
-If you use this repository or find it helpful, please consider citing our paper:
-
-> **[Your Paper Title Here]**  
-> *Author(s): [Your Name(s)]*  
-> [Conference/Institution, Year]
-
----

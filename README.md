@@ -56,7 +56,7 @@ The trained policies enable the quadruped robot to autonomously:
 For the complete results — including expert policy experiments, various-object experiments, and joy-stick control —  
 please refer to the full video below:
 
-🔗 [Watch on YouTube](https://youtu.be/uiymKDvBhqo?si=0NBjBdXMmXQbp0HV)
+🔗 [![Watch on YouTube](https://img.youtube.com/vi/uiymKDvBhqo?si=0NBjBdXMmXQbp0HV/hqdefault.jpg)](https://youtu.be/uiymKDvBhqo?si=0NBjBdXMmXQbp0HV)
 
 ---
 

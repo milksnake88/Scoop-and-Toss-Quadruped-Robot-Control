@@ -19,8 +19,8 @@ We design a **hierarchical policy structure** consisting of:
 
 ## 🏋️‍♂️ Method
 
-- **Algorithm:** Proximal Policy Optimization (**PPO**)  
-- **Framework:** Hierarchical Reinforcement Learning (HRL)  
+- **Algorithm:** Proximal Policy Optimization
+- **Framework:** Hierarchical Reinforcement Learning  
 - **Curriculum Learning:** The scoop-and-toss policy is trained with gradually increasing object placement randomness for robust behavior.  
 - **State Transition-based Initialization (STI):** Used to fine-tune expert policies for smoother transitions between behaviors.  
 
